@@ -313,3 +313,37 @@ export async function logoutMCPServer(serverId, options) {
         throw new Error(`opencode mcp logout failed: ${result.stderr}`);
     }
 }
+/**
+ * Logout provider bằng opencode auth logout
+ */
+export async function logoutProvider(providerId, options) {
+    const args = ['auth', 'logout', providerId];
+    const result = await runOpenCodeCommand(args, options);
+    if (result.exitCode !== 0) {
+        throw new Error(`opencode auth logout failed: ${result.stderr}`);
+    }
+}
+/**
+ * Verify provider authentication
+ */
+export async function verifyProviderAuth(providerId, options) {
+    const verbose = options?.verbose ?? isVerbose();
+    const modelId = options?.modelId || 'gpt-4o'; // Default model để test
+    if (verbose) {
+        console.log(`[VERIFY] Checking auth for provider: ${providerId}`);
+    }
+    // Sử dụng verifyProvider đã có sẵn
+    const result = await verifyProvider(providerId, modelId, options);
+    if (result.valid) {
+        return {
+            valid: true,
+            details: `Provider ${providerId} is authenticated and working`
+        };
+    }
+    else {
+        return {
+            valid: false,
+            error: result.error || 'Unknown error'
+        };
+    }
+}
