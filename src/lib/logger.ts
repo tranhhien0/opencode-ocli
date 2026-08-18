@@ -1,8 +1,3 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Structured logging với pino
- */
-
 import pino, { Logger, LoggerOptions } from 'pino';
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
@@ -23,44 +18,26 @@ const defaultOptions: LoggerOptions = {
 
 let logger: Logger;
 
-/**
- * Khởi tạo logger
- */
 export function initLogger(options?: Partial<LoggerOptions>): Logger {
   const opts = { ...defaultOptions, ...options };
-  logger = pino(opts);
+  // stderr keeps stdout clean for `--json` and shell scripting.
+  logger = pino(opts, pino.destination(2));
   return logger;
 }
 
-/**
- * Lấy logger instance
- */
 export function getLogger(): Logger {
-  if (!logger) {
-    logger = initLogger();
-  }
+  if (!logger) logger = initLogger();
   return logger;
 }
 
-/**
- * Tạo child logger với context
- */
 export function createChildLogger(context: LogContext): Logger {
-  const parent = getLogger();
-  return parent.child(context);
+  return getLogger().child(context);
 }
 
-/**
- * Set log level dynamically
- */
 export function setLogLevel(level: LogLevel): void {
-  const currentLogger = getLogger();
-  currentLogger.level = level;
+  getLogger().level = level;
 }
 
-/**
- * Convenience methods
- */
 export const log = {
   fatal: (msg: string, context?: Record<string, unknown>) => getLogger().fatal(context, msg),
   error: (msg: string, context?: Record<string, unknown>) => getLogger().error(context, msg),
@@ -70,14 +47,9 @@ export const log = {
   trace: (msg: string, context?: Record<string, unknown>) => getLogger().trace(context, msg),
 };
 
-/**
- * Parse log level từ env var hoặc CLI option
- */
 export function parseLogLevel(level?: string): LogLevel {
   if (!level) return 'info';
-  
   const validLevels: LogLevel[] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'];
   const normalized = level.toLowerCase() as LogLevel;
-  
   return validLevels.includes(normalized) ? normalized : 'info';
 }
