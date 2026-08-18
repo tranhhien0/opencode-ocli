@@ -1,4 +1,4 @@
-```
+
 # Dependencies
 node_modules/
 
@@ -7,4 +7,3 @@ dist/
 
 # Temporary files
 .vite/
-```
