@@ -1,1 +1,41 @@
-Nothing needs to be added to the .gitignore file based on the provided file changes. The added test files (.test.ts) and modified workflow file (ci-cd.yml) are source/config files that should be tracked in version control. No build artifacts, dependencies, or temporary files were detected in the changes.
+```
+# Build artifacts
+dist/
+*.js
+*.d.ts
+
+# Dependencies
+node_modules/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Test coverage
+coverage/
+htmlcov/
+.coverage
+
+# Distribution / packaging
+*.tar.gz
+*.zip
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Vite/Vitest cache
+node_modules/.vite/
+
+# Docs backup files
+docs/official/*.html
+```
