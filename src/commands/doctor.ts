@@ -81,7 +81,6 @@ doctor.description('Kiểm tra toàn bộ hệ thống OCX')
       for (const result of results) console.log(`${result.status === 'ok' ? '✓' : result.status === 'warning' ? '⚠' : '✗'} ${result.name}: ${result.message}${result.details ? `\n  ${result.details}` : ''}`);
       if (summary.error > 0) process.exitCode = 1;
     }
-    if (summary.error > 0) process.exitCode = 1;
   });
 
 function getCommandVersion(command: string, timeoutMs: number): Promise<string> {
