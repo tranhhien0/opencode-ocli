@@ -276,26 +276,85 @@ Mọi đóng góp đều được chào đón! Vui lòng đọc [CONTRIBUTING.md
 ## 📄 License
 
 ISC License - xem file [LICENSE](LICENSE) để biết thêm chi tiết.
-## 🧪 Testing
 
-Project sử dụng [Vitest](https://vitest.dev/) cho unit tests.
+---
 
-### Chạy tests
+## 🛠 Development Guide
+
+### Yêu cầu phát triển
+
+- **Node.js**: 18.0+
+- **npm**: 9.0+
+- **OpenCode CLI**: Đã cài đặt và trong PATH
+
+### Cài đặt từ source
 
 ```bash
-# Chạy tất cả tests
-npm test
+git clone https://github.com/your-org/ocx.git
+cd ocx
+npm install
+npm run build
+npm link
+```
 
-# Chạy tests một lần (không watch mode)
-npm run test:run
+### Commands hữu ích
 
-# Chạy tests với coverage report
-npm run test:coverage
+```bash
+# Chạy trong development mode (với hot reload)
+npm run dev -- <command>
+
+# Build production
+npm run build
+
+# Chạy tests
+npm test              # Watch mode
+npm run test:run      # Single run
+npm run test:coverage # Với coverage report
+
+# Lint code (nếu có ESLint)
+npm run lint
+```
+
+### Cấu trúc project
+
+```
+ocx/
+├── src/
+│   ├── commands/         # CLI commands
+│   │   ├── auth.ts
+│   │   ├── config.ts
+│   │   ├── doctor.ts
+│   │   ├── mcp.ts
+│   │   ├── model.ts
+│   │   ├── other.ts
+│   │   ├── plugin.ts
+│   │   ├── provider.ts
+│   │   ├── session.ts
+│   │   └── skill.ts
+│   ├── lib/              # Core libraries
+│   │   ├── config.ts           # Config read/write/merge
+│   │   ├── env.ts              # Environment variables
+│   │   ├── error-handler.ts    # Error handling utilities
+│   │   ├── errors.ts           # Error hierarchy
+│   │   ├── logger.ts           # Structured logging
+│   │   ├── opencode-client.ts  # OpenCode CLI abstraction
+│   │   ├── opencode-shell.ts   # Shell execution
+│   │   └── types.ts            # TypeScript types
+│   └── index.ts          # Entry point
+├── tests/                # Test files
+│   ├── config.test.ts
+│   ├── opencode-shell.test.ts
+│   └── provider.test.ts
+├── docs/
+│   └── adr/              # Architecture Decision Records
+├── .github/
+│   └── workflows/        # CI/CD pipelines
+└── package.json
 ```
 
 ### Viết tests mới
 
-Tests được đặt trong thư mục `tests/`. Mỗi file test có đuôi `.test.ts`.
+Tests sử dụng [Vitest](https://vitest.dev/). Tạo file `.test.ts` trong thư mục `tests/`:
 
 ```typescript
 import { describe, it, expect } from 'vitest';
@@ -308,3 +367,102 @@ describe('config.ts', () => {
   });
 });
 ```
+
+### Logging
+
+Project sử dụng [pino](https://getpino.io/) cho structured logging. Log level có thể điều chỉnh qua env var:
+
+```bash
+OCX_LOG_LEVEL=debug npm run dev -- provider list
+```
+
+### Error Handling
+
+Sử dụng error hierarchy từ `src/lib/errors.ts`:
+
+```typescript
+import { ConfigError, NetworkError } from './lib/errors.js';
+
+try {
+  // some operation
+} catch (error) {
+  if (error instanceof ConfigError) {
+    // Handle config error
+  } else if (error instanceof NetworkError) {
+    // Retry or show network error message
+  }
+}
+```
+
+---
+
+## 📚 Architecture Decision Records (ADRs)
+
+ADRs ghi lại các quyết định kiến trúc quan trọng của project:
+
+| ADR | Title | Description |
+|-----|-------|-------------|
+| [001](docs/adr/001-use-jsonc-for-config.md) | Sử dụng JSONC cho Config Files | Quyết định dùng jsonc-parser thay vì JSON.parse() |
+| [002](docs/adr/002-structured-logging-with-pino.md) | Structured Logging với Pino | Lựa chọn pino cho hệ thống logging |
+| [003](docs/adr/003-error-handling-hierarchy.md) | Error Handling Hierarchy | Thiết kế error hierarchy và error codes |
+| [004](docs/adr/004-testing-strategy-with-vitest.md) | Testing Strategy với Vitest | Chiến lược testing và guidelines |
+| [005](docs/adr/005-opencode-client-abstraction.md) | OpenCodeClient Abstraction | Abstraction layer cho OpenCode CLI interactions |
+
+---
+
+## 🔍 Troubleshooting
+
+### Lỗi thường gặp
+
+**1. "OpenCode CLI not found"**
+```bash
+# Kiểm tra OpenCode đã cài chưa
+which opencode
+
+# Nếu chưa, cài đặt
+curl -sSL https://opencode.ai/install | bash
+```
+
+**2. Config validation failed**
+```bash
+# Validate config hiện tại
+ocx config validate
+
+# Reset về default
+ocx config init --global
+```
+
+**3. Permission denied khi ghi config**
+```bash
+# Kiểm tra quyền file
+ls -la ~/.opencode/config.json
+
+# Fix quyền nếu cần
+chmod 644 ~/.opencode/config.json
+```
+
+### Debug mode
+
+Bật verbose logging để xem chi tiết:
+
+```bash
+# Qua CLI flag
+ocx provider list --verbose
+
+# Qua env var
+OCX_VERBOSE=true ocx provider list
+
+# Full debug logs
+OCX_LOG_LEVEL=debug ocx provider list
+```
+
+### Report bugs
+
+Gặp bug? Tạo issue tại: https://github.com/your-org/ocx/issues
+
+Kèm theo:
+- Phiên bản OCX (`ocx --version`)
+- Phiên bản Node.js (`node --version`)
+- OS và version
+- Steps to reproduce
+- Logs (với `--verbose` hoặc `OCX_LOG_LEVEL=debug`)
