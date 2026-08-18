@@ -1,41 +1,64 @@
 ```
-# Build artifacts
-dist/
-*.js
-*.d.ts
-
 # Dependencies
 node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+target/
+.gradle/
 
-# Logs and temp files
-*.log
+# Build artifacts
+dist/
+build/
+*.pyc
+*.class
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
 *.tmp
 
-# Environment
+# System files
+.DS_Store
+Thumbs.db
 .env
 .env.local
 *.env.*
 
-# Editors
-.vscode/
-.idea/
-
-# Test coverage
+# Logs and coverage
+*.log
 coverage/
 htmlcov/
 .coverage
 
-# Distribution / packaging
-*.tar.gz
+# Compressed files
 *.zip
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Vite/Vitest cache
-node_modules/.vite/
-
-# Docs backup files
-docs/official/*.html
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
 ```
