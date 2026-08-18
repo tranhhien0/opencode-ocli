@@ -9,6 +9,14 @@ import { ProviderType, ProviderConfig } from '../lib/types.js';
 import { readConfig, addProviderToConfig, removeProviderFromConfig } from '../lib/config.js';
 import { getProviderApiKey, parseList, formatOutput } from '../lib/env.js';
 import { listAuthProviders, verifyProvider, listModels } from '../lib/opencode-shell.js';
+import { classifyError, printError, printSuccess, printWarning, createOCXError } from '../lib/error-handler.js';
+
+// ANSI color codes for inline usage
+const colors = {
+  reset: '\x1b[0m',
+  brightRed: '\x1b[91m',
+  cyan: '\x1b[36m'
+};
 
 const provider = new Command('provider');
 
@@ -86,7 +94,8 @@ provider.command('list')
         console.log();
       }
     } catch (error) {
-      console.error('Error listing providers:', (error as Error).message);
+      const ocxError = classifyError(error);
+      printError(ocxError, { showStack: options?.verbose });
       process.exit(1);
     }
   });
@@ -169,8 +178,12 @@ provider.command('add')
       }
       
       if (!providerId || !providerType) {
-        console.error('Error: Thiếu provider ID hoặc type');
-        process.exit(1);
+        throw createOCXError(
+          'Thiếu provider ID hoặc type',
+          'invalid_input',
+          'Vui lòng cung cấp cả --type và --id.\n' +
+          '  Ví dụ: ocx provider add --type api --id openai'
+        );
       }
       
       // Build provider config
@@ -239,7 +252,7 @@ provider.command('add')
         verbose: options.verbose
       });
       
-      console.log(`✓ Đã thêm provider "${providerId}" (${providerType})`);
+      printSuccess(`Đã thêm provider "${providerId}" (${providerType})`);
       
       // Gợi ý set env var nếu là API provider
       if (providerType === 'api' && apiKey) {
@@ -248,7 +261,8 @@ provider.command('add')
       }
       
     } catch (error) {
-      console.error('Error adding provider:', (error as Error).message);
+      const ocxError = classifyError(error);
+      printError(ocxError, { showStack: options?.verbose });
       process.exit(1);
     }
   });
@@ -268,9 +282,10 @@ provider.command('remove <id>')
         dryRun: options.dryRun,
         verbose: options.verbose
       });
-      console.log(`✓ Đã xóa provider "${providerId}"`);
+      printSuccess(`Đã xóa provider "${providerId}"`);
     } catch (error) {
-      console.error('Error removing provider:', (error as Error).message);
+      const ocxError = classifyError(error);
+      printError(ocxError, { showStack: options?.verbose });
       process.exit(1);
     }
   });
@@ -301,15 +316,24 @@ provider.command('verify <id>')
         }, null, 2));
       } else {
         if (result.valid) {
-          console.log(`✓ ${providerId}/${modelId} is working!`);
+          printSuccess(`${providerId}/${modelId} is working!`);
         } else {
-          console.log(`✗ ${providerId}/${modelId} failed:`);
-          console.log(`  ${result.error}`);
+          console.error(`${colors.brightRed}✗ ${providerId}/${modelId} failed:${colors.reset}`);
+          console.error(`  ${result.error}`);
+          
+          // Gợi ý khắc phục dựa trên loại lỗi
+          const ocxError = classifyError(new Error(result.error || 'Unknown error'));
+          if (ocxError.suggestion) {
+            console.error(`\n${colors.cyan}💡 Gợi ý:${colors.reset}`);
+            console.error(ocxError.suggestion);
+          }
+          
           process.exit(1);
         }
       }
     } catch (error) {
-      console.error('Error verifying provider:', (error as Error).message);
+      const ocxError = classifyError(error);
+      printError(ocxError, { showStack: options?.verbose });
       process.exit(1);
     }
   });

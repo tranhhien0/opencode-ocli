@@ -11,9 +11,15 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
-  "keywords": ["opencode", "cli", "admin"],
+  "keywords": [
+    "opencode",
+    "cli",
+    "admin"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -21,7 +27,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "tsx": "^4.20.0",
     "typescript": "^5.8.0",
-    "tsx": "^4.20.0"
+    "vitest": "^4.1.10"
   }
 }

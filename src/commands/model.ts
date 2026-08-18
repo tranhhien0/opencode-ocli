@@ -8,6 +8,14 @@ import * as readline from 'node:readline';
 import { readConfig, setDefaultModel } from '../lib/config.js';
 import { formatOutput } from '../lib/env.js';
 import { listModels } from '../lib/opencode-shell.js';
+import { classifyError, printError, printSuccess, createOCXError } from '../lib/error-handler.js';
+
+// ANSI color codes for inline usage
+const colors = {
+  reset: '\x1b[0m',
+  brightRed: '\x1b[91m',
+  cyan: '\x1b[36m'
+};
 
 const model = new Command('model');
 
@@ -23,6 +31,14 @@ function prompt(rl: readline.Interface, question: string): Promise<string> {
   return new Promise((resolve) => {
     rl.question(question, (answer) => resolve(answer));
   });
+}
+
+/**
+ * Validate model ID format (provider/model-name)
+ */
+function validateModelFormat(modelId: string): boolean {
+  const modelRegex = /^[a-zA-Z0-9\-_.]+\/[a-zA-Z0-9\-_.]+$/;
+  return modelRegex.test(modelId);
 }
 
 /**
@@ -97,11 +113,17 @@ model.command('set <model>')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (modelArg, options) => {
     try {
-      // Validate model format
-      if (!modelArg.includes('/')) {
-        console.error('Error: Model phải có format "provider/model"');
-        console.error('Ví dụ: anthropic/claude-sonnet-4-20250514');
-        process.exit(1);
+      // Validate model format với regex
+      if (!validateModelFormat(modelArg)) {
+        throw createOCXError(
+          `Invalid model format: "${modelArg}"`,
+          'invalid_input',
+          'Expected format: <provider>/<model-name>\n' +
+          'Examples:\n' +
+          '  openai/gpt-4o\n' +
+          '  anthropic/claude-sonnet-4-20250514\n' +
+          '  google/gemini-2.5-pro'
+        );
       }
       
       const configPath = options.project ? undefined : undefined; // global vs project
@@ -112,10 +134,11 @@ model.command('set <model>')
       });
       
       const scope = options.project ? 'project' : 'global';
-      console.log(`✓ Đã set model mặc định (${scope}): ${modelArg}`);
+      printSuccess(`Đã set model mặc định (${scope}): ${modelArg}`);
       
     } catch (error) {
-      console.error('Error setting model:', (error as Error).message);
+      const ocxError = classifyError(error);
+      printError(ocxError, { showStack: options?.verbose });
       process.exit(1);
     }
   });
@@ -220,7 +243,11 @@ model.command('variant <model> <variantName>')
       // Parse provider và model từ arg
       const parts = modelArg.split('/');
       if (parts.length !== 2) {
-        console.error('Error: Model phải có format "provider/model"');
+        throw createOCXError(
+          `Invalid model format: "${modelArg}"`,
+          'invalid_input',
+          'Expected format: <provider></model-name>'
+        );
         process.exit(1);
       }
       
