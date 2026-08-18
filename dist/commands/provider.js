@@ -38,7 +38,14 @@ provider.command('list')
     .action(async (options) => {
     try {
         const config = readConfig();
-        const authedProviders = await listAuthProviders({ verbose: options.verbose });
+        let authedProviders = [];
+        try {
+            authedProviders = await listAuthProviders({ verbose: options.verbose });
+        }
+        catch {
+            // Ignore error if opencode is not installed
+            authedProviders = [];
+        }
         // Lấy danh sách providers từ config
         const configProviders = Object.keys(config.provider || {});
         // Providers có trong models.dev nhưng chưa auth (hardcoded list phổ biến)

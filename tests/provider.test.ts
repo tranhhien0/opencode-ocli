@@ -172,7 +172,7 @@ describe('auth logout command', () => {
 
     await runOpenCodeCommand(['auth', 'logout', 'openai']);
 
-    expect(runOpenCodeCommand).toHaveBeenCalledWith(['auth', 'logout', 'openai']);
+    expect(runOpenCodeCommand).toHaveBeenCalledWith(['auth', 'logout', 'openai'], undefined);
   });
 
   it('should handle dry-run mode for logout', async () => {
@@ -226,26 +226,26 @@ describe('session export command', () => {
     vi.mocked(runOpenCodeCommand).mockResolvedValue(mockResult);
     vi.mocked(exportSession).mockResolvedValue();
 
-    await exportSession('session-123', './backup.json', false);
+    await exportSession('session-123', './backup.json', false, undefined);
 
-    expect(exportSession).toHaveBeenCalledWith('session-123', './backup.json', false);
+    expect(exportSession).toHaveBeenCalledWith('session-123', './backup.json', false, undefined);
   });
 
   it('should export with sanitize option', async () => {
     vi.mocked(exportSession).mockResolvedValue();
 
-    await exportSession('session-456', './sanitized.json', true);
+    await exportSession('session-456', './sanitized.json', true, undefined);
 
-    expect(exportSession).toHaveBeenCalledWith('session-456', './sanitized.json', true);
+    expect(exportSession).toHaveBeenCalledWith('session-456', './sanitized.json', true, undefined);
   });
 
   it('should export latest session if no sessionId provided', async () => {
     const outputPath = `session-${Date.now()}.json`;
     vi.mocked(exportSession).mockResolvedValue();
 
-    await exportSession(null, outputPath, false);
+    await exportSession(null, outputPath, false, undefined);
 
-    expect(exportSession).toHaveBeenCalledWith(null, outputPath, false);
+    expect(exportSession).toHaveBeenCalledWith(null, outputPath, false, undefined);
   });
 });
 
@@ -257,9 +257,9 @@ describe('session import command', () => {
   it('should import session from file', async () => {
     vi.mocked(importSession).mockResolvedValue();
 
-    await importSession('./backup.json');
+    await importSession('./backup.json', undefined);
 
-    expect(importSession).toHaveBeenCalledWith('./backup.json');
+    expect(importSession).toHaveBeenCalledWith('./backup.json', undefined);
   });
 
   it('should handle URL input for import', async () => {

@@ -13,7 +13,14 @@ auth.command('list')
     .option('-v, --verbose', 'Verbose mode')
     .action(async (options) => {
     try {
-        const providers = await listAuthProviders({ verbose: options.verbose });
+        let providers = [];
+        try {
+            providers = await listAuthProviders({ verbose: options.verbose });
+        }
+        catch {
+            // Ignore error if opencode is not installed
+            providers = [];
+        }
         if (options.json) {
             console.log(formatJsonOutput(providers));
         }
