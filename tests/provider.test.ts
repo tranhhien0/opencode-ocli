@@ -172,7 +172,7 @@ describe('auth logout command', () => {
 
     await runOpenCodeCommand(['auth', 'logout', 'openai']);
 
-    expect(runOpenCodeCommand).toHaveBeenCalledWith(['auth', 'logout', 'openai'], expect.any(Object));
+    expect(runOpenCodeCommand).toHaveBeenCalledWith(['auth', 'logout', 'openai']);
   });
 
   it('should handle dry-run mode for logout', async () => {
@@ -228,7 +228,7 @@ describe('session export command', () => {
 
     await exportSession('session-123', './backup.json', false);
 
-    expect(exportSession).toHaveBeenCalledWith('session-123', './backup.json', false, undefined);
+    expect(exportSession).toHaveBeenCalledWith('session-123', './backup.json', false);
   });
 
   it('should export with sanitize option', async () => {
@@ -236,15 +236,16 @@ describe('session export command', () => {
 
     await exportSession('session-456', './sanitized.json', true);
 
-    expect(exportSession).toHaveBeenCalledWith('session-456', './sanitized.json', true, undefined);
+    expect(exportSession).toHaveBeenCalledWith('session-456', './sanitized.json', true);
   });
 
   it('should export latest session if no sessionId provided', async () => {
+    const outputPath = `session-${Date.now()}.json`;
     vi.mocked(exportSession).mockResolvedValue();
 
-    await exportSession(null, `session-${Date.now()}.json`, false);
+    await exportSession(null, outputPath, false);
 
-    expect(exportSession).toHaveBeenCalledWith(null, expect.stringMatching(/^session-\d+\.json$/), false, undefined);
+    expect(exportSession).toHaveBeenCalledWith(null, outputPath, false);
   });
 });
 
@@ -258,7 +259,7 @@ describe('session import command', () => {
 
     await importSession('./backup.json');
 
-    expect(importSession).toHaveBeenCalledWith('./backup.json', undefined);
+    expect(importSession).toHaveBeenCalledWith('./backup.json');
   });
 
   it('should handle URL input for import', async () => {

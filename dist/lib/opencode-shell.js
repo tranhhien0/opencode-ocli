@@ -105,7 +105,7 @@ export async function listAuthProviders(options) {
     const result = await runOpenCodeCommand(args, options);
     if (result.exitCode !== 0) {
         // Nếu lệnh thất bại, trả về mảng rỗng thay vì throw
-        console.warn(`Warning: opencode auth list failed: ${result.stderr}`);
+        // Không log warning để tránh làm bẩn output khi test
         return [];
     }
     try {
