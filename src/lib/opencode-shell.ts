@@ -215,9 +215,26 @@ export async function importSession(
 export async function verifyProvider(
   providerId: string,
   modelId: string,
-  options?: OpenCodeShellOptions
+  options?: OpenCodeShellOptions & { timeout?: number }
 ): Promise<{ valid: boolean; error?: string }> {
   const verbose = options?.verbose ?? isVerbose();
+  const timeout = options?.timeout ?? 10000; // Default 10 giây
+  
+  // Kiểm tra nếu provider trùng với provider preload
+  const preloadedProviders = ['openai', 'anthropic', 'google', 'groq'];
+  if (preloadedProviders.includes(providerId.toLowerCase())) {
+    console.warn(`\x1b[33m⚠ Cảnh báo: Provider "${providerId}" là provider mặc định của OpenCode.\x1b[0m`);
+    console.warn(`\x1b[33m  Nếu bạn đang cấu hình lại, hãy đảm bảo API key được cập nhật đúng.\x1b[0m\n`);
+  }
+  
+  // Tạo AbortController cho timeout
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    abortController.abort();
+    if (verbose) {
+      console.log(`[VERIFY] Timeout after ${timeout}ms`);
+    }
+  }, timeout);
   
   // Thử chạy một prompt rất nhỏ để verify
   const args = [
@@ -228,31 +245,87 @@ export async function verifyProvider(
   ];
   
   if (verbose) {
-    console.log(`[VERIFY] Testing ${providerId}/${modelId}...`);
+    console.log(`[VERIFY] Testing ${providerId}/${modelId} with timeout ${timeout}ms...`);
   }
   
-  const result = await runOpenCodeCommand(args, { ...options, verbose: false });
-  
-  if (result.exitCode !== 0) {
-    // Phân tích lỗi
-    const stderr = result.stderr.toLowerCase();
-    let errorType = 'unknown';
+  try {
+    const result = await runOpenCodeCommand(args, { ...options, verbose: false });
+    clearTimeout(timeoutId);
     
-    if (stderr.includes('401') || stderr.includes('unauthorized') || stderr.includes('api key')) {
-      errorType = 'invalid_api_key';
-    } else if (stderr.includes('404') || stderr.includes('not found') || stderr.includes('model')) {
-      errorType = 'invalid_model';
-    } else if (stderr.includes('network') || stderr.includes('econnrefused') || stderr.includes('timeout')) {
-      errorType = 'network_error';
+    if (result.exitCode !== 0) {
+      // Phân tích lỗi chi tiết
+      const stderr = result.stderr.toLowerCase();
+      const originalStderr = result.stderr.trim();
+      
+      let errorMessage = '';
+      let errorType = 'unknown';
+      
+      // Check 401 - Unauthorized / API Key sai
+      if (stderr.includes('401') || stderr.includes('unauthorized') || 
+          stderr.includes('api key') || stderr.includes('authentication')) {
+        errorType = 'invalid_api_key';
+        errorMessage = `Lỗi xác thực (API key sai hoặc thiếu)`;
+      }
+      // Check 404 - Not Found
+      else if (stderr.includes('404') || stderr.includes('not found')) {
+        errorType = 'invalid_model';
+        errorMessage = `Không tìm thấy model hoặc endpoint`;
+      }
+      // Check network errors
+      else if (stderr.includes('econnrefused') || stderr.includes('enotfound') || 
+               stderr.includes('network') || stderr.includes('fetch failed')) {
+        errorType = 'network_error';
+        errorMessage = `Mất kết nối mạng hoặc server không phản hồi`;
+      }
+      // Check timeout
+      else if (stderr.includes('timeout') || stderr.includes('timed out')) {
+        errorType = 'timeout';
+        errorMessage = `Yêu cầu hết thời gian chờ (${timeout}ms)`;
+      }
+      // Default error
+      else {
+        errorType = 'unknown';
+        errorMessage = originalStderr || 'Lỗi không xác định';
+      }
+      
+      if (verbose) {
+        console.log(`[VERIFY] Error type: ${errorType}`);
+        console.log(`[VERIFY] Raw stderr: ${originalStderr}`);
+      }
+      
+      return {
+        valid: false,
+        error: `${errorType}: ${errorMessage}`
+      };
+    }
+    
+    return { valid: true };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    const err = error as Error;
+    
+    // Handle abort (timeout)
+    if (err.name === 'AbortError' || err.message.includes('aborted')) {
+      return {
+        valid: false,
+        error: `timeout: Yêu cầu hết thời gian chờ sau ${timeout}ms`
+      };
+    }
+    
+    // Handle ENOENT - opencode not found
+    if (err.message.includes('ENOENT')) {
+      return {
+        valid: false,
+        error: `not_found: Không tìm thấy lệnh opencode`
+      };
     }
     
     return {
       valid: false,
-      error: `${errorType}: ${result.stderr.trim()}`
+      error: `unknown: ${err.message}`
     };
   }
-  
-  return { valid: true };
 }
 
 /**
