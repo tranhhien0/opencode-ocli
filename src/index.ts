@@ -20,6 +20,7 @@ import { session } from './commands/session.js';
 import { configCmd } from './commands/config.js';
 import { auth } from './commands/auth.js';
 import { doctor } from './commands/doctor.js';
+import { server, serve, web, attach } from './commands/server.js';
 
 // Get version from package.json
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,10 @@ program.addCommand(mcp);
 program.addCommand(session);
 program.addCommand(configCmd);
 program.addCommand(auth);
+program.addCommand(server);
+program.addCommand(serve);
+program.addCommand(web);
+program.addCommand(attach);
 
 // Example usage
 program.addHelpText('after', `
