@@ -64,3 +64,17 @@ export declare function authMCPServer(serverId: string, options?: OpenCodeShellO
  * Chạy opencode mcp logout
  */
 export declare function logoutMCPServer(serverId: string, options?: OpenCodeShellOptions): Promise<void>;
+/**
+ * Logout provider bằng opencode auth logout
+ */
+export declare function logoutProvider(providerId: string, options?: OpenCodeShellOptions): Promise<void>;
+/**
+ * Verify provider authentication
+ */
+export declare function verifyProviderAuth(providerId: string, options?: OpenCodeShellOptions & {
+    modelId?: string;
+}): Promise<{
+    valid: boolean;
+    details?: string;
+    error?: string;
+}>;

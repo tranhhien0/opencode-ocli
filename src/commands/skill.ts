@@ -59,15 +59,74 @@ skill.command('list')
 
 skill.command('enable <name>')
   .description('Enable skill')
-  .action((name) => {
-    console.log(`Note: Skill enabling depends on your OpenCode version. Consider adding to instructions.`);
-    console.log(`Suggested: Add "${name}" to instructions array in opencode.json`);
+  .option('--project', 'Áp dụng cho project hiện tại')
+  .option('--dry-run', 'Không ghi file, chỉ hiển thị')
+  .option('-v, --verbose', 'Verbose mode')
+  .action(async (name, options) => {
+    try {
+      const config = readConfig(options.project ? undefined : undefined);
+      
+      if (!config.instructions) {
+        config.instructions = [];
+      }
+      
+      if (config.instructions.includes(name)) {
+        console.log(`Skill "${name}" đã được enable rồi.`);
+        return;
+      }
+      
+      config.instructions.push(name);
+      
+      const { writeConfig } = await import('../lib/config.js');
+      writeConfig(config, options.project ? undefined : undefined, {
+        dryRun: options.dryRun,
+        verbose: options.verbose
+      });
+      
+      const scope = options.project ? 'project' : 'global';
+      console.log(`✓ Đã enable skill "${name}" (${scope})`);
+      console.log(`  Added to instructions array in opencode.json`);
+    } catch (error) {
+      console.error('Error enabling skill:', (error as Error).message);
+      process.exit(1);
+    }
   });
 
 skill.command('disable <name>')
   .description('Disable skill')
-  .action((name) => {
-    console.log(`Note: Skill disabling depends on your OpenCode version.`);
+  .option('--project', 'Áp dụng cho project hiện tại')
+  .option('--dry-run', 'Không ghi file, chỉ hiển thị')
+  .option('-v, --verbose', 'Verbose mode')
+  .action(async (name, options) => {
+    try {
+      const config = readConfig(options.project ? undefined : undefined);
+      
+      if (!config.instructions || config.instructions.length === 0) {
+        console.log(`Không có skill nào được enable.`);
+        return;
+      }
+      
+      const index = config.instructions.indexOf(name);
+      if (index === -1) {
+        console.log(`Skill "${name}" không tìm thấy trong danh sách enabled.`);
+        return;
+      }
+      
+      config.instructions.splice(index, 1);
+      
+      const { writeConfig } = await import('../lib/config.js');
+      writeConfig(config, options.project ? undefined : undefined, {
+        dryRun: options.dryRun,
+        verbose: options.verbose
+      });
+      
+      const scope = options.project ? 'project' : 'global';
+      console.log(`✓ Đã disable skill "${name}" (${scope})`);
+      console.log(`  Removed from instructions array in opencode.json`);
+    } catch (error) {
+      console.error('Error disabling skill:', (error as Error).message);
+      process.exit(1);
+    }
   });
 
 export { skill };

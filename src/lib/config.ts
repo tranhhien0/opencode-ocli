@@ -88,8 +88,7 @@ export function writeConfig(
     if (fs.existsSync(tempPath)) {
       fs.unlinkSync(tempPath);
     }
-    const err = error as Error;
-    throw new Error(`Không thể ghi config: ${err.message}`);
+    throw error;
   }
 }
 
