@@ -1,5 +1,5 @@
 {
-  "name": "ocx",
+  "name": "opencode-ocli",
   "version": "0.1.0",
   "description": "OpenCode eXtension CLI - Quản trị nhanh cho OpenCode",
   "type": "module",
@@ -7,6 +7,9 @@
   "bin": {
     "ocx": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
@@ -17,12 +20,25 @@
     "lint": "eslint src/",
     "deploy:secret-tranhhien0": "ghcli .env.tranhhien0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tranhhien0/opencode-ocli.git"
+  },
+  "homepage": "https://github.com/tranhhien0/opencode-ocli#readme",
+  "bugs": {
+    "url": "https://github.com/tranhhien0/opencode-ocli/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "opencode",
     "cli",
-    "admin"
+    "admin",
+    "ai",
+    "assistant"
   ],
-  "author": "",
+  "author": "tranhhien0",
   "license": "ISC",
   "dependencies": {
     "commander": "^14.0.3",

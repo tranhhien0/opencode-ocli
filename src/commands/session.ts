@@ -55,12 +55,17 @@ session.command('export [sessionId]')
   .description('Export session ra file')
   .option('--output <path>', 'Output file path')
   .option('--sanitize', 'Sanitize sensitive data')
+  .option('--dry-run', 'Dry run')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (sessionId, options) => {
     try {
       const outputPath = options.output || `session-${Date.now()}.json`;
-      await exportSession(sessionId || null, outputPath, Boolean(options.sanitize), { verbose: options.verbose });
-      console.log(`✓ Exported session to: ${outputPath}`);
+      await exportSession(sessionId || null, outputPath, Boolean(options.sanitize), { verbose: options.verbose, dryRun: options.dryRun });
+      if (options.dryRun) {
+        console.error(`[DRY-RUN] Would export session ${sessionId || 'current'} to: ${outputPath}`);
+      } else {
+        console.log(`✓ Exported session to: ${outputPath}`);
+      }
     } catch (error) {
       console.error('Error exporting session:', (error as Error).message);
       process.exitCode = 1;

@@ -4,7 +4,7 @@
  */
 
 import { spawn, SpawnOptions } from 'node:child_process';
-import { NetworkError, OpenCodeError, TimeoutError, ConfigError } from './errors.js';
+import { NetworkError, OpenCodeError, TimeoutError } from './errors.js';
 import { log } from './logger.js';
 
 export interface ClientOptions {
