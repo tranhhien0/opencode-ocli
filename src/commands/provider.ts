@@ -233,6 +233,7 @@ provider.command('add')
           if (baseUrl) {
             providerConfig.options!.baseURL = baseUrl;
           }
+          // num_ctx sẽ được set trong interactive mode hoặc qua flag
           break;
           
         case 'bedrock':
