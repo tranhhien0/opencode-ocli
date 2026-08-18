@@ -127,17 +127,27 @@ session.command('backup')
 session.command('export [sessionId]')
   .description('Export session ra file')
   .option('--output <path>', 'Output file path')
-  .option('--sanitize', 'Sanitize sensitive data')
+  .option('--sanitize', 'Sanitize sensitive data (thay thế bằng [REDACTED])')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (sessionId, options) => {
     try {
       const outputPath = options.output || `session-${Date.now()}.json`;
+      
+      if (options.verbose) {
+        console.log(`[EXPORT] Session: ${sessionId || 'latest'}`);
+        console.log(`[EXPORT] Output: ${outputPath}`);
+        console.log(`[EXPORT] Sanitize: ${options.sanitize || false}`);
+      }
       
       await exportSession(sessionId || null, outputPath, options.sanitize, {
         verbose: options.verbose
       });
       
       console.log(`✓ Exported session to: ${outputPath}`);
+      
+      if (options.sanitize) {
+        console.log('  Note: Sensitive data has been replaced with [REDACTED]');
+      }
     } catch (error) {
       console.error('Error exporting session:', (error as Error).message);
       process.exit(1);
@@ -145,17 +155,76 @@ session.command('export [sessionId]')
   });
 
 session.command('import <file>')
-  .description('Import session từ file')
+  .description('Import session từ file hoặc URL')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (inputFile, options) => {
     try {
-      if (!fs.existsSync(inputFile)) {
-        console.error(`Error: File not found: ${inputFile}`);
-        process.exit(1);
+      const verbose = options.verbose || false;
+      
+      // Check if input is a URL
+      let actualInputFile = inputFile;
+      let tempFilePath: string | null = null;
+      
+      if (inputFile.startsWith('http://') || inputFile.startsWith('https://')) {
+        if (verbose) {
+          console.log(`[IMPORT] Downloading from URL: ${inputFile}`);
+        }
+        
+        // Download file từ URL
+        const { get } = await import('node:http');
+        const { get: getHttps } = await import('node:https');
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const os = await import('node:os');
+        
+        const httpLib = inputFile.startsWith('https://') ? getHttps : get;
+        tempFilePath = path.join(os.tmpdir(), `ocx-session-${Date.now()}.json`);
+        
+        await new Promise<void>((resolve, reject) => {
+          const file = fs.createWriteStream(tempFilePath!);
+          httpLib(inputFile, (response) => {
+            if (response.statusCode !== 200) {
+              reject(new Error(`HTTP ${response.statusCode}: Failed to download from URL`));
+              return;
+            }
+            response.pipe(file);
+            file.on('finish', () => {
+              file.close();
+              resolve();
+            });
+          }).on('error', (err) => {
+            fs.unlinkSync(tempFilePath!);
+            reject(err);
+          });
+        });
+        
+        actualInputFile = tempFilePath;
+        
+        if (verbose) {
+          console.log(`[IMPORT] Downloaded to: ${tempFilePath}`);
+        }
+      } else {
+        // Local file
+        if (!fs.existsSync(inputFile)) {
+          console.error(`Error: File not found: ${inputFile}`);
+          process.exit(1);
+        }
       }
       
-      await importSession(inputFile, { verbose: options.verbose });
+      if (verbose) {
+        console.log(`[IMPORT] Importing from: ${actualInputFile}`);
+      }
+      
+      await importSession(actualInputFile, { verbose });
       console.log(`✓ Imported session from: ${inputFile}`);
+      
+      // Cleanup temp file
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+        if (verbose) {
+          console.log(`[IMPORT] Cleaned up temp file: ${tempFilePath}`);
+        }
+      }
     } catch (error) {
       console.error('Error importing session:', (error as Error).message);
       process.exit(1);
@@ -165,10 +234,46 @@ session.command('import <file>')
 session.command('list')
   .description('Liệt kê sessions')
   .option('--json', 'Output JSON')
+  .option('--limit <number>', 'Số session tối đa hiển thị')
+  .option('--project <name>', 'Lọc sessions theo project name (nếu có)')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (options) => {
     try {
-      const sessions = await listSessions({ verbose: options.verbose });
+      const verbose = options.verbose || false;
+      
+      if (verbose) {
+        console.log(`[LIST] Fetching sessions...`);
+        if (options.limit) {
+          console.log(`[LIST] Limit: ${options.limit}`);
+        }
+        if (options.project) {
+          console.log(`[LIST] Project filter: ${options.project}`);
+        }
+      }
+      
+      let sessions = await listSessions({ verbose });
+      
+      // Filter by project name nếu có
+      if (options.project) {
+        sessions = sessions.filter(s => {
+          // Check nếu session ID chứa project name hoặc metadata liên quan
+          return s.id.includes(options.project);
+        });
+        if (verbose) {
+          console.log(`[LIST] After filtering: ${sessions.length} sessions`);
+        }
+      }
+      
+      // Apply limit
+      if (options.limit) {
+        const limit = parseInt(options.limit, 10);
+        if (!isNaN(limit) && limit > 0) {
+          sessions = sessions.slice(0, limit);
+          if (verbose) {
+            console.log(`[LIST] After limiting: ${sessions.length} sessions`);
+          }
+        }
+      }
       
       if (options.json) {
         console.log(JSON.stringify(sessions, null, 2));

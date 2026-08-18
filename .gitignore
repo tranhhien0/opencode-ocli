@@ -1,4 +1,46 @@
 ```
-# CI/CD related
-.github/workflows/
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+
+# Compiled files
+*.pyc
+__pycache__/
+
+# Package manager
+package-lock.json
+.yarn/*
+!.yarn/cache
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Test coverage
+coverage/
+.nyc_output/
+.vite/
+
+# OS generated
+.DS_Store
+Thumbs.db
 ```
