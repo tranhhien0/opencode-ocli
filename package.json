@@ -1,5 +1,5 @@
 {
-  "name": "ocx",
+  "name": "opencode-ocli",
   "version": "0.1.0",
   "description": "OpenCode eXtension CLI - Quản trị nhanh cho OpenCode",
   "type": "module",
