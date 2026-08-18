@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { OpenCodeConfig, ProviderConfig, MCPServerConfig, ModelConfig } from './types.js';
+import { OpenCodeConfig, ProviderConfig, MCPServerConfig, ModelConfig, FormatterConfig, LSPConfig } from './types.js';
 import { getConfigPath, isDryRun, isVerbose } from './env.js';
 
 const CONFIG_SCHEMA = 'https://opencode.ai/config.json';
@@ -131,16 +131,16 @@ export function mergeConfigs(...configs: (OpenCodeConfig | undefined)[]): OpenCo
     
     // Merge formatter/lsp
     if (typeof config.formatter === 'object' && config.formatter !== null) {
-      if (typeof result.formatter !== 'object') {
+      if (typeof result.formatter !== 'object' || result.formatter === null) {
         result.formatter = {};
       }
-      result.formatter = { ...(result.formatter as Record<string, unknown>), ...config.formatter };
+      result.formatter = { ...(result.formatter as Record<string, unknown>) as Record<string, FormatterConfig>, ...config.formatter as Record<string, FormatterConfig> };
     }
     if (typeof config.lsp === 'object' && config.lsp !== null) {
-      if (typeof result.lsp !== 'object') {
+      if (typeof result.lsp !== 'object' || result.lsp === null) {
         result.lsp = {};
       }
-      result.lsp = { ...(result.lsp as Record<string, unknown>), ...config.lsp };
+      result.lsp = { ...(result.lsp as Record<string, unknown>) as Record<string, LSPConfig>, ...config.lsp as Record<string, LSPConfig> };
     }
   }
   

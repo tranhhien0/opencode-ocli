@@ -45,21 +45,25 @@ export async function runOpenCodeCommand(
     let stdout = '';
     let stderr = '';
     
-    proc.stdout.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      if (verbose) {
-        process.stdout.write(chunk);
-      }
-    });
+    if (proc.stdout) {
+      proc.stdout.on('data', (data) => {
+        const chunk = data.toString();
+        stdout += chunk;
+        if (verbose) {
+          process.stdout.write(chunk);
+        }
+      });
+    }
     
-    proc.stderr.on('data', (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      if (verbose) {
-        process.stderr.write(chunk);
-      }
-    });
+    if (proc.stderr) {
+      proc.stderr.on('data', (data) => {
+        const chunk = data.toString();
+        stderr += chunk;
+        if (verbose) {
+          process.stderr.write(chunk);
+        }
+      });
+    }
     
     proc.on('error', (err) => {
       if (err.message.includes('ENOENT')) {
