@@ -1,15 +1,10 @@
 ```
-# Build artifacts
-dist/
-build/
-*.js
-
 # Dependencies
 node_modules/
 
-# Testing
-.vite/
+# Build artifacts
+dist/
 
-# Environment
-.env*
+# Temporary files
+.vite/
 ```
