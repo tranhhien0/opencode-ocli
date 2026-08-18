@@ -97,3 +97,14 @@ CLI cần bọc (wrap) lại các nhóm lệnh gốc của OpenCode, tối thi�
 - Không hard-code bất kỳ API key / secret mẫu nào trong code — chỉ dùng placeholder rõ ràng.
 - Toàn bộ code phải chạy được ngay bằng `tsx`/`node --experimental-strip-types` trên Node 24 mà không cần bước build riêng (nhưng vẫn nên có script build production tuỳ chọn).
 - Ghi rõ version OpenCode CLI mà thiết kế này tương thích (dựa theo tài liệu tại thời điểm research), và cảnh báo nếu OpenCode có breaking change (vd. tài liệu "1.0 Migration") ảnh hưởng tới field nào trong config.
+
+## 7. User input
+Tôi đang sử dụng opencode, cần một cli để có thể thực hiện các cấu hình, cài đặt plugin, skill......
+
+* Phải dùng fetch search để tìm tài liệu mới nhất trong quá trình thiết kế
+* Tìm tất cả docs, cấu  hình, để thiết kế một cli tương ứng để chạy nhanh các thao tác như: connect provider, api, cài plugin, skill, backup sesson, restore session,.....
+* Thiết kế cli tương ứng theo docs, có đầy đủ args,  env (fallback từ env qua args), các  thông tin nào hông có thì phải có giá trị mặc định, đảm bảo logic chạy ổn.
+* Đi sâu, chi tiết vào việc add provider: các provider có hỗ trợ add api, add api compact..., đổi models
+* Viết typescript, nodejs 24, 
+
+VIẾT LẠI PROMPT GIÚP TÔI.
