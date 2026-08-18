@@ -14,7 +14,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "deploy:secret-tranhhien0": "ghcli .env.tranhhien0"
   },
   "keywords": [
     "opencode",

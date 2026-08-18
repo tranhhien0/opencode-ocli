@@ -7,3 +7,6 @@ dist/
 
 # Temporary files
 .vite/
+gh-workspace.jsonc
+.env
+.env.*
