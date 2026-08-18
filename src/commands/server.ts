@@ -1,8 +1,3 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Server commands: serve, web, attach
- */
-
 import { Command } from 'commander';
 import { spawn } from 'node:child_process';
 import { isVerbose } from '../lib/env.js';
@@ -14,269 +9,113 @@ const colors = {
   green: '\x1b[32m'
 };
 
-// Helper để spawn opencode server commands
 async function runServerCommand(
   subCommand: string,
   args: string[],
-  options?: { verbose?: boolean; port?: number; host?: string }
+  options?: { verbose?: boolean; port?: number; hostname?: string }
 ): Promise<void> {
   const verbose = options?.verbose ?? isVerbose();
-  const port = options?.port || 3000;
-  const host = options?.host || 'localhost';
-  
+  const port = options?.port ?? 4096;
+  const hostname = options?.hostname ?? '127.0.0.1';
   const opencodePath = process.env.OPENCODE_PATH || 'opencode';
-  
-  // Build command args
   const cmdArgs = [subCommand];
-  
-  // Add port và host nếu có
+
   if (subCommand === 'serve' || subCommand === 'web') {
-    cmdArgs.push('--port', port.toString());
-    cmdArgs.push('--host', host);
+    cmdArgs.push('--port', String(port), '--hostname', hostname);
   }
-  
-  // Thêm các args bổ sung
   cmdArgs.push(...args);
-  
-  if (verbose) {
-    console.log(`[SERVER] Running: ${opencodePath} ${cmdArgs.join(' ')}`);
-  }
-  
-  // Đọc environment variables
-  const env = { ...process.env };
-  
-  // OPENCODE_SERVER_PASSWORD
-  if (process.env.OPENCODE_SERVER_PASSWORD) {
-    env.OPENCODE_SERVER_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD;
-    if (verbose) {
-      console.log(`[SERVER] Using OPENCODE_SERVER_PASSWORD (masked)`);
-    }
-  }
-  
-  // OPENCODE_SERVER_USERNAME
-  if (process.env.OPENCODE_SERVER_USERNAME) {
-    env.OPENCODE_SERVER_USERNAME = process.env.OPENCODE_SERVER_USERNAME;
-    if (verbose) {
-      console.log(`[SERVER] Using OPENCODE_SERVER_USERNAME: ${process.env.OPENCODE_SERVER_USERNAME}`);
-    }
-  }
-  
+
+  if (verbose) console.error(`[SERVER] Running: ${opencodePath} ${cmdArgs.join(' ')}`);
+
   return new Promise((resolve, reject) => {
     const proc = spawn(opencodePath, cmdArgs, {
       stdio: 'inherit',
-      env,
-      shell: true
+      env: { ...process.env },
+      shell: false,
     });
-    
-    proc.on('error', (err) => {
-      if (err.message.includes('ENOENT')) {
-        reject(new Error(
-          'Không tìm thấy lệnh `opencode`. Vui lòng cài đặt OpenCode trước.'
-        ));
+    proc.once('error', (err) => {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        reject(new Error('Không tìm thấy lệnh `opencode`. Vui lòng cài đặt OpenCode trước.'));
       } else {
         reject(err);
       }
     });
-    
-    proc.on('close', (exitCode) => {
-      if (exitCode === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Command exited with code ${exitCode}`));
-      }
+    proc.once('close', (exitCode) => {
+      if (exitCode === 0) resolve();
+      else reject(new Error(`Command exited with code ${exitCode ?? 1}`));
     });
   });
 }
 
-// Create main server command group
+function addServerCommand(command: Command, name: 'serve' | 'web') {
+  command.command(name)
+    .description(name === 'serve' ? 'Chạy OpenCode server mode' : 'Chạy OpenCode web interface')
+    .option('--port <number>', 'Port', '4096')
+    .option('--hostname <hostname>', 'Hostname', '127.0.0.1')
+    .option('-v, --verbose', 'Verbose mode')
+    .action(async (options) => {
+      const port = Number(options.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        console.error('Invalid port: expected an integer from 1 to 65535');
+        process.exit(1);
+      }
+      try {
+        console.log(`${colors.cyan}${name === 'serve' ? '🚀 Starting OpenCode server...' : '🌐 Starting OpenCode web interface...'}${colors.reset}`);
+        console.log(`   Host: ${options.hostname}`);
+        console.log(`   Port: ${port}`);
+        if (process.env.OPENCODE_SERVER_PASSWORD) console.log(`   ${colors.yellow}⚠ Password protection enabled${colors.reset}`);
+        console.log();
+        await runServerCommand(name, [], { verbose: options.verbose, port, hostname: options.hostname });
+      } catch (error) {
+        console.error(`${colors.yellow}✗ ${name} error:${colors.reset}`, (error as Error).message);
+        process.exit(1);
+      }
+    });
+}
+
+function addAttachCommand(command: Command) {
+  command.command('attach [url]')
+    .description('Attach vào OpenCode server URL')
+    .option('-v, --verbose', 'Verbose mode')
+    .action(async (url, options) => {
+      try {
+        const args = url ? [url] : [];
+        await runServerCommand('attach', args, { verbose: options.verbose });
+      } catch (error) {
+        console.error(`${colors.yellow}✗ Attach error:${colors.reset}`, (error as Error).message);
+        process.exit(1);
+      }
+    });
+}
+
 const server = new Command('server');
+addServerCommand(server, 'serve');
+addServerCommand(server, 'web');
+addAttachCommand(server);
 
-server.command('serve')
-  .description('Chạy OpenCode server mode')
-  .option('--port <number>', 'Port mặc định (default: 3000)', '3000')
-  .option('--host <hostname>', 'Hostname mặc định (default: localhost)', 'localhost')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
-    try {
-      const port = parseInt(options.port, 10);
-      const host = options.host;
-      
-      console.log(`${colors.cyan}🚀 Starting OpenCode server...${colors.reset}`);
-      console.log(`   Host: ${host}`);
-      console.log(`   Port: ${port}`);
-      
-      if (process.env.OPENCODE_SERVER_PASSWORD) {
-        console.log(`   ${colors.yellow}⚠ Password protection enabled${colors.reset}`);
-      }
-      
-      console.log();
-      
-      await runServerCommand('serve', [], { 
-        verbose: options.verbose,
-        port,
-        host
-      });
-      
-      console.log(`\n${colors.green}✓ Server stopped${colors.reset}`);
-    } catch (error) {
-      console.error(`${colors.yellow}✗ Server error:${colors.reset}`, (error as Error).message);
-      process.exit(1);
-    }
-  });
+const serve = new Command('serve').description('Chạy OpenCode server mode (shortcut)');
+serve.option('--port <number>', 'Port', '4096').option('--hostname <hostname>', 'Hostname', '127.0.0.1').option('-v, --verbose', 'Verbose mode');
+serve.action(async (options) => {
+  const port = Number(options.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) process.exit(1);
+  try { await runServerCommand('serve', [], { verbose: options.verbose, port, hostname: options.hostname }); }
+  catch (error) { console.error((error as Error).message); process.exit(1); }
+});
 
-server.command('web')
-  .description('Chạy OpenCode web interface')
-  .option('--port <number>', 'Port mặc định (default: 3000)', '3000')
-  .option('--host <hostname>', 'Hostname mặc định (default: localhost)', 'localhost')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
-    try {
-      const port = parseInt(options.port, 10);
-      const host = options.host;
-      
-      console.log(`${colors.cyan}🌐 Starting OpenCode web interface...${colors.reset}`);
-      console.log(`   URL: http://${host}:${port}`);
-      console.log();
-      
-      if (process.env.OPENCODE_SERVER_PASSWORD) {
-        console.log(`${colors.yellow}⚠ Password protection enabled${colors.reset}`);
-        console.log(`   Username: ${process.env.OPENCODE_SERVER_USERNAME || 'admin'}`);
-        console.log();
-      }
-      
-      await runServerCommand('web', [], { 
-        verbose: options.verbose,
-        port,
-        host
-      });
-      
-      console.log(`\n${colors.green}✓ Web interface stopped${colors.reset}`);
-    } catch (error) {
-      console.error(`${colors.yellow}✗ Web interface error:${colors.reset}`, (error as Error).message);
-      process.exit(1);
-    }
-  });
+const web = new Command('web').description('Chạy OpenCode web interface (shortcut)');
+web.option('--port <number>', 'Port', '4096').option('--hostname <hostname>', 'Hostname', '127.0.0.1').option('-v, --verbose', 'Verbose mode');
+web.action(async (options) => {
+  const port = Number(options.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) process.exit(1);
+  try { await runServerCommand('web', [], { verbose: options.verbose, port, hostname: options.hostname }); }
+  catch (error) { console.error((error as Error).message); process.exit(1); }
+});
 
-server.command('attach')
-  .description('Attach vào session đang chạy')
-  .option('--session <id>', 'Session ID để attach')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
-    try {
-      const args = [];
-      
-      if (options.session) {
-        args.push(options.session);
-      }
-      
-      console.log(`${colors.cyan}🔗 Attaching to OpenCode session...${colors.reset}`);
-      console.log();
-      
-      await runServerCommand('attach', args, { 
-        verbose: options.verbose
-      });
-      
-      console.log(`\n${colors.green}✓ Detached from session${colors.reset}`);
-    } catch (error) {
-      console.error(`${colors.yellow}✗ Attach error:${colors.reset}`, (error as Error).message);
-      process.exit(1);
-    }
-  });
+const attach = new Command('attach').description('Attach vào OpenCode server (shortcut)');
+attach.argument('[url]', 'OpenCode server URL').option('-v, --verbose', 'Verbose mode');
+attach.action(async (url, options) => {
+  try { await runServerCommand('attach', url ? [url] : [], { verbose: options.verbose }); }
+  catch (error) { console.error((error as Error).message); process.exit(1); }
+});
 
-// Export individual commands for use in main index
-export { server };
-
-// Also export serve, web, attach as standalone commands for easier access
-const serve = new Command('serve')
-  .description('Chạy OpenCode server mode (shortcut)')
-  .option('--port <number>', 'Port mặc định (default: 3000)', '3000')
-  .option('--host <hostname>', 'Hostname mặc định (default: localhost)', 'localhost')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
-    try {
-      const port = parseInt(options.port, 10);
-      const host = options.host;
-      
-      console.log(`${colors.cyan}🚀 Starting OpenCode server...${colors.reset}`);
-      console.log(`   Host: ${host}`);
-      console.log(`   Port: ${port}`);
-      
-      if (process.env.OPENCODE_SERVER_PASSWORD) {
-        console.log(`   ${colors.yellow}⚠ Password protection enabled${colors.reset}`);
-      }
-      
-      console.log();
-      
-      await runServerCommand('serve', [], { 
-        verbose: options.verbose,
-        port,
-        host
-      });
-      
-      console.log(`\n${colors.green}✓ Server stopped${colors.reset}`);
-    } catch (error) {
-      console.error(`${colors.yellow}✗ Server error:${colors.reset}`, (error as Error).message);
-      process.exit(1);
-    }
-  });
-
-const web = new Command('web')
-  .description('Chạy OpenCode web interface (shortcut)')
-  .option('--port <number>', 'Port mặc định (default: 3000)', '3000')
-  .option('--host <hostname>', 'Hostname mặc định (default: localhost)', 'localhost')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
-    try {
-      const port = parseInt(options.port, 10);
-      const host = options.host;
-      
-      console.log(`${colors.cyan}🌐 Starting OpenCode web interface...${colors.reset}`);
-      console.log(`   URL: http://${host}:${port}`);
-      console.log();
-      
-      if (process.env.OPENCODE_SERVER_PASSWORD) {
-        console.log(`${colors.yellow}⚠ Password protection enabled${colors.reset}`);
-        console.log(`   Username: ${process.env.OPENCODE_SERVER_USERNAME || 'admin'}`);
-        console.log();
-      }
-      
-      await runServerCommand('web', [], { 
-        verbose: options.verbose,
-        port,
-        host
-      });
-      
-      console.log(`\n${colors.green}✓ Web interface stopped${colors.reset}`);
-    } catch (error) {
-      console.error(`${colors.yellow}✗ Web interface error:${colors.reset}`, (error as Error).message);
-      process.exit(1);
-    }
-  });
-
-const attach = new Command('attach')
-  .description('Attach vào session đang chạy (shortcut)')
-  .option('--session <id>', 'Session ID để attach')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
-    try {
-      const args = [];
-      
-      if (options.session) {
-        args.push(options.session);
-      }
-      
-      console.log(`${colors.cyan}🔗 Attaching to OpenCode session...${colors.reset}`);
-      console.log();
-      
-      await runServerCommand('attach', args, { 
-        verbose: options.verbose
-      });
-      
-      console.log(`\n${colors.green}✓ Detached from session${colors.reset}`);
-    } catch (error) {
-      console.error(`${colors.yellow}✗ Attach error:${colors.reset}`, (error as Error).message);
-      process.exit(1);
-    }
-  });
-
-export { serve, web, attach };
+export { server, serve, web, attach };
