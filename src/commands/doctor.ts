@@ -91,7 +91,11 @@ function getCommandVersion(command: string, timeoutMs: number): Promise<string> 
     const timer = setTimeout(() => { proc.kill('SIGTERM'); reject(new Error(`Command timed out after ${timeoutMs}ms`)); }, timeoutMs);
     proc.stdout?.on('data', data => { output += data.toString(); });
     proc.once('error', error => { clearTimeout(timer); reject(error); });
-    proc.once('close', code => { clearTimeout(timer); code === 0 ? resolve(output.trim()) : reject(new Error(`Command exited with code ${code ?? 1}`)); });
+    proc.once('close', code => {
+      clearTimeout(timer);
+      if (code === 0) resolve(output.trim());
+      else reject(new Error(`Command exited with code ${code ?? 1}`));
+    });
   });
 }
 

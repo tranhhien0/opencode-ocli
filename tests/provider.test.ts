@@ -172,7 +172,7 @@ describe('auth logout command', () => {
 
     await runOpenCodeCommand(['auth', 'logout', 'openai']);
 
-    expect(runOpenCodeCommand).toHaveBeenCalledWith(['auth', 'logout', 'openai'], undefined);
+    expect(runOpenCodeCommand).toHaveBeenCalledWith(['auth', 'logout', 'openai']);
   });
 
   it('should handle dry-run mode for logout', async () => {

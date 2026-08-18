@@ -45,7 +45,6 @@ program
 // Global options
 program
   .option('-v, --verbose', 'Verbose mode (chi tiết log)')
-  .option('--json', 'Output dạng JSON (cho scripting)')
   .option('--dry-run', 'Không ghi file, chỉ hiển thị thay đổi')
   .option('-p, --project', 'Áp dụng cho project hiện tại (thay vì global)');
 
@@ -62,6 +61,7 @@ program.addCommand(server);
 program.addCommand(serve);
 program.addCommand(web);
 program.addCommand(attach);
+program.addCommand(doctor);
 
 // Example usage
 program.addHelpText('after', `

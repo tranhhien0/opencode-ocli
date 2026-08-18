@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { readConfig, writeConfig, validateConfig, initConfig } from '../lib/config.js';
+import { readConfig, validateConfig, initConfig } from '../lib/config.js';
 import { getConfigPath } from '../lib/env.js';
 import * as fs from 'node:fs';
 import { parse as parseJSONC } from 'jsonc-parser';
