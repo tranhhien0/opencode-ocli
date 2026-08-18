@@ -18,7 +18,9 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/",
-    "deploy:secret-tranhhien0": "ghcli .env.tranhhien0"
+    "deploy:secret-tranhhien0": "ghcli .env.tranhhien0",
+    "version:bump": "node scripts/bump-version.mjs",
+    "version:bump:verify": "node scripts/bump-version.mjs --verify"
   },
   "repository": {
     "type": "git",

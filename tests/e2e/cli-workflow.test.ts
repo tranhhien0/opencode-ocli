@@ -157,7 +157,7 @@ describe('E2E: ocx skill commands', () => {
     const result = await runCLI('skill enable test-skill.md --dry-run');
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('chưa tồn tại');
+    expect(result.stderr).toContain('does not exist');
   });
 
   it('should handle disable without --force', async () => {

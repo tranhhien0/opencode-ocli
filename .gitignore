@@ -10,3 +10,4 @@ dist/
 gh-workspace.jsonc
 .env
 .env.*
+coverage/

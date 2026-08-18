@@ -42,11 +42,7 @@ program
   .version(version)
   .showHelpAfterError();
 
-// Global options
-program
-  .option('-v, --verbose', 'Verbose mode (chi tiết log)')
-  .option('--dry-run', 'Không ghi file, chỉ hiển thị thay đổi')
-  .option('-p, --project', 'Áp dụng cho project hiện tại (thay vì global)');
+// (global options removed — each subcommand defines its own flags)
 
 // Add command groups
 program.addCommand(provider);
