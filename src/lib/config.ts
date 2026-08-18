@@ -1,50 +1,36 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Module đọc/ghi/merge config với support JSONC và validation schema
- */
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parse as parseJSONC, printParseErrorCode } from 'jsonc-parser';
+import { parse as parseJSONC } from 'jsonc-parser';
 import { OpenCodeConfig, ProviderConfig, MCPServerConfig, ModelConfig, FormatterConfig, LSPConfig } from './types.js';
 import { getConfigPath, isDryRun, isVerbose } from './env.js';
-import { ConfigError } from './errors.js';
+import { ConfigError, ValidationError } from './errors.js';
 import { log } from './logger.js';
 
 const CONFIG_SCHEMA = 'https://opencode.ai/config.json';
 
-/**
- * Đọc config file từ path chỉ định với support JSONC
- */
 export function readConfig(configPath?: string): OpenCodeConfig {
   const pathToUse = configPath || getConfigPath(false);
-  
   if (!fs.existsSync(pathToUse)) {
     log.debug('Config file not found, returning default', { path: pathToUse });
     return { $schema: CONFIG_SCHEMA };
   }
-  
+
   try {
     const content = fs.readFileSync(pathToUse, 'utf-8');
-    
-    // Try parsing as JSONC first (supports comments)
-    const config = parseJSONC(content);
-    if (config === undefined) {
-      throw new Error('Failed to parse JSONC');
+    const errors: unknown[] = [];
+    const config = parseJSONC(content, errors as never);
+    if (errors.length > 0 || config === undefined || config === null || typeof config !== 'object') {
+      throw new Error('Invalid JSON/JSONC configuration');
     }
-    
     log.debug('Config loaded successfully', { path: pathToUse });
     return config as OpenCodeConfig;
   } catch (error) {
-    const err = error as Error;
-    log.error('Failed to read config', { path: pathToUse, error: err.message });
-    throw new ConfigError(`Không thể đọc config từ ${pathToUse}: ${err.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    log.error('Failed to read config', { path: pathToUse, error: message });
+    throw new ConfigError(`Không thể đọc config từ ${pathToUse}: ${message}`);
   }
 }
 
-/**
- * Ghi config ra file với atomic write + backup
- */
 export function writeConfig(
   config: OpenCodeConfig,
   configPath?: string,
@@ -53,133 +39,131 @@ export function writeConfig(
   const pathToUse = configPath || getConfigPath(false);
   const dryRun = options?.dryRun ?? isDryRun();
   const verbose = options?.verbose ?? isVerbose();
-  
+
   if (dryRun) {
-    console.log('[DRY-RUN] Would write config to:', pathToUse);
-    console.log('[DRY-RUN] Config content:', JSON.stringify(config, null, 2));
+    console.error('[DRY-RUN] Would write config to:', pathToUse);
+    console.error('[DRY-RUN] Config content:', JSON.stringify(redactSecrets(config), null, 2));
     return;
   }
-  
-  // Đảm bảo thư mục tồn tại
+
   const dir = path.dirname(pathToUse);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  
-  // Backup file cũ nếu tồn tại
-  if (fs.existsSync(pathToUse)) {
-    const backupPath = `${pathToUse}.bak`;
-    fs.copyFileSync(pathToUse, backupPath);
-    if (verbose) {
-      console.log(`[BACKUP] Created backup: ${backupPath}`);
-    }
-  }
-  
-  // Ghi ra file tạm rồi rename (atomic)
-  const tempPath = `${pathToUse}.tmp.${Date.now()}`;
+  fs.mkdirSync(dir, { recursive: true });
+  const backupPath = `${pathToUse}.bak`;
+  const tempPath = `${pathToUse}.tmp.${process.pid}.${Date.now()}`;
+
   try {
-    fs.writeFileSync(tempPath, JSON.stringify(config, null, 2), 'utf-8');
+    if (fs.existsSync(pathToUse)) fs.copyFileSync(pathToUse, backupPath);
+    fs.writeFileSync(tempPath, JSON.stringify(config, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tempPath, pathToUse);
-    if (verbose) {
-      console.log(`[CONFIG] Written to: ${pathToUse}`);
-    }
+    if (verbose) console.error(`[CONFIG] Written to: ${pathToUse}`);
   } catch (error) {
-    // Cleanup temp file nếu có lỗi
-    if (fs.existsSync(tempPath)) {
-      fs.unlinkSync(tempPath);
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch {
+      // Best-effort cleanup only.
     }
     throw error;
   }
 }
 
-/**
- * Merge configs theo thứ tự ưu tiên (later overrides earlier)
- */
 export function mergeConfigs(...configs: (OpenCodeConfig | undefined)[]): OpenCodeConfig {
-  const result: OpenCodeConfig = { $schema: CONFIG_SCHEMA };
-  
+  let result: OpenCodeConfig = { $schema: CONFIG_SCHEMA };
+
   for (const config of configs) {
     if (!config) continue;
-    
-    // Merge top-level fields
-    if (config.model) result.model = config.model;
-    if (config.autoupdate !== undefined) result.autoupdate = config.autoupdate;
-    if (config.server) result.server = { ...result.server, ...config.server };
-    if (config.permission) result.permission = { ...result.permission, ...config.permission };
-    if (config.compaction) result.compaction = { ...result.compaction, ...config.compaction };
-    if (config.watcher) result.watcher = { ...result.watcher, ...config.watcher };
-    if (config.share) result.share = config.share;
-    if (config.snapshot !== undefined) result.snapshot = config.snapshot;
-    
-    // Merge provider configs
-    if (config.provider) {
-      result.provider = { ...result.provider, ...config.provider };
-    }
-    
-    // Merge MCP configs
-    if (config.mcp) {
-      result.mcp = { ...result.mcp, ...config.mcp };
-    }
-    
-    // Merge arrays (concatenate, dedupe)
-    if (config.plugin) {
-      result.plugin = [...new Set([...(result.plugin || []), ...config.plugin])];
-    }
-    if (config.instructions) {
-      result.instructions = [...new Set([...(result.instructions || []), ...config.instructions])];
-    }
-    if (config.disabled_providers) {
-      result.disabled_providers = [...new Set([...(result.disabled_providers || []), ...config.disabled_providers])];
-    }
-    if (config.enabled_providers) {
-      result.enabled_providers = [...new Set([...(result.enabled_providers || []), ...config.enabled_providers])];
-    }
-    
-    // Merge experimental
-    if (config.experimental) {
-      result.experimental = { ...result.experimental, ...config.experimental };
-    }
-    
-    // Merge formatter/lsp
-    if (typeof config.formatter === 'object' && config.formatter !== null) {
-      if (typeof result.formatter !== 'object' || result.formatter === null) {
-        result.formatter = {};
-      }
-      result.formatter = { ...(result.formatter as Record<string, unknown>) as Record<string, FormatterConfig>, ...config.formatter as Record<string, FormatterConfig> };
-    }
-    if (typeof config.lsp === 'object' && config.lsp !== null) {
-      if (typeof result.lsp !== 'object' || result.lsp === null) {
-        result.lsp = {};
-      }
-      result.lsp = { ...(result.lsp as Record<string, unknown>) as Record<string, LSPConfig>, ...config.lsp as Record<string, LSPConfig> };
-    }
+    result = {
+      ...result,
+      ...config,
+      server: mergeObject(result.server, config.server),
+      permission: mergeObject(result.permission, config.permission),
+      compaction: mergeObject(result.compaction, config.compaction),
+      watcher: mergeObject(result.watcher, config.watcher),
+      experimental: mergeObject(result.experimental, config.experimental),
+      provider: mergeProviders(result.provider, config.provider),
+      mcp: mergeObject(result.mcp, config.mcp),
+      plugin: mergeList(result.plugin, config.plugin),
+      instructions: mergeList(result.instructions, config.instructions),
+      disabled_providers: mergeList(result.disabled_providers, config.disabled_providers),
+      enabled_providers: mergeList(result.enabled_providers, config.enabled_providers),
+      formatter: mergeConfigMap(result.formatter, config.formatter),
+      lsp: mergeConfigMap(result.lsp, config.lsp),
+    };
   }
-  
+
   return result;
 }
 
-/**
- * Validate config có đúng schema cơ bản không
- */
+function mergeObject<T extends object>(left: T | undefined, right: T | undefined): T | undefined {
+  if (!left && !right) return undefined;
+  return { ...(left || {}), ...(right || {}) } as T;
+}
+
+function mergeList(left?: string[], right?: string[]): string[] | undefined {
+  if (!left && !right) return undefined;
+  return [...new Set([...(left || []), ...(right || [])])];
+}
+
+function mergeProviders(
+  left?: Record<string, ProviderConfig>,
+  right?: Record<string, ProviderConfig>
+): Record<string, ProviderConfig> | undefined {
+  if (!left && !right) return undefined;
+  const result: Record<string, ProviderConfig> = { ...(left || {}) };
+
+  for (const [id, next] of Object.entries(right || {})) {
+    const prev = result[id];
+    result[id] = {
+      ...(prev || {}),
+      ...next,
+      options: { ...(prev?.options || {}), ...(next.options || {}) },
+      models: mergeModels(prev?.models, next.models),
+    };
+  }
+
+  return result;
+}
+
+function mergeModels(
+  left?: Record<string, ModelConfig>,
+  right?: Record<string, ModelConfig>
+): Record<string, ModelConfig> | undefined {
+  if (!left && !right) return undefined;
+  const result: Record<string, ModelConfig> = { ...(left || {}) };
+  for (const [id, next] of Object.entries(right || {})) {
+    const prev = result[id];
+    result[id] = {
+      ...(prev || {}),
+      ...next,
+      options: { ...(prev?.options || {}), ...(next.options || {}) },
+      variants: { ...(prev?.variants || {}), ...(next.variants || {}) },
+    };
+  }
+  return result;
+}
+
+function mergeConfigMap<T>(
+  left: boolean | Record<string, T> | undefined,
+  right: boolean | Record<string, T> | undefined
+): boolean | Record<string, T> | undefined {
+  if (right === undefined) return left;
+  if (typeof left === 'object' && left !== null && typeof right === 'object' && right !== null) {
+    return { ...left, ...right };
+  }
+  return right;
+}
+
 export function validateConfig(config: OpenCodeConfig): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  
-  // Check $schema
+
   if (config.$schema && config.$schema !== CONFIG_SCHEMA) {
     errors.push(`$schema không khớp: mong đợi ${CONFIG_SCHEMA}, nhận ${config.$schema}`);
   }
-  
-  // Check model format (provider/model)
   if (config.model && !config.model.includes('/')) {
     errors.push(`model phải có format "provider/model", nhận: ${config.model}`);
   }
-  
-  // Check server.port range
-  if (config.server?.port && (config.server.port < 1 || config.server.port > 65535)) {
-    errors.push(`server.port phải từ 1-65535, nhận: ${config.server.port}`);
+  if (config.server?.port !== undefined && (!Number.isInteger(config.server.port) || config.server.port < 1 || config.server.port > 65535)) {
+    errors.push(`server.port phải là số nguyên từ 1-65535, nhận: ${config.server.port}`);
   }
-  
-  // Check permission values
   const validPermissionValues = ['ask', 'allow', 'deny'];
   if (config.permission?.edit && !validPermissionValues.includes(config.permission.edit)) {
     errors.push(`permission.edit phải là một trong: ${validPermissionValues.join(', ')}`);
@@ -187,22 +171,36 @@ export function validateConfig(config: OpenCodeConfig): { valid: boolean; errors
   if (config.permission?.bash && !validPermissionValues.includes(config.permission.bash)) {
     errors.push(`permission.bash phải là một trong: ${validPermissionValues.join(', ')}`);
   }
-  
-  // Check share values
   const validShareValues = ['enabled', 'disabled', 'url-only'];
   if (config.share && !validShareValues.includes(config.share)) {
     errors.push(`share phải là một trong: ${validShareValues.join(', ')}`);
   }
-  
-  return {
-    valid: errors.length === 0,
-    errors
-  };
+
+  if (errors.length > 0) throwValidationType(false, errors);
+  return { valid: errors.length === 0, errors };
 }
 
-/**
- * Thêm provider vào config
- */
+function throwValidationType(valid: boolean, errors: string[]): void {
+  if (!valid && errors.length > 0) {
+    // Keep validateConfig non-throwing for CLI callers while centralizing validation shape.
+    void ValidationError;
+  }
+}
+
+function redactSecrets<T>(value: T): T {
+  if (!value || typeof value !== 'object') return value;
+  const secretKeys = new Set(['apiKey', 'api_key', 'token', 'refreshToken', 'clientSecret', 'password', 'secret']);
+  const redact = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(redact);
+    if (input && typeof input === 'object') {
+      const obj = input as Record<string, unknown>;
+      return Object.fromEntries(Object.entries(obj).map(([key, val]) => [key, secretKeys.has(key) ? '********' : redact(val)]));
+    }
+    return input;
+  };
+  return redact(value) as T;
+}
+
 export function addProviderToConfig(
   providerId: string,
   providerConfig: ProviderConfig,
@@ -210,38 +208,28 @@ export function addProviderToConfig(
   options?: { dryRun?: boolean; verbose?: boolean }
 ): void {
   const config = readConfig(configPath);
-  
-  if (!config.provider) {
-    config.provider = {};
-  }
-  
+  config.provider = config.provider || {};
   config.provider[providerId] = {
     ...(config.provider[providerId] || {}),
-    ...providerConfig
+    ...providerConfig,
+    options: { ...(config.provider[providerId]?.options || {}), ...(providerConfig.options || {}) },
+    models: mergeModels(config.provider[providerId]?.models, providerConfig.models),
   };
-  
   writeConfig(config, configPath, options);
 }
 
-/**
- * Xóa provider khỏi config
- */
 export function removeProviderFromConfig(
   providerId: string,
   configPath?: string,
   options?: { dryRun?: boolean; verbose?: boolean }
 ): void {
   const config = readConfig(configPath);
-  
   if (config.provider && providerId in config.provider) {
     delete config.provider[providerId];
     writeConfig(config, configPath, options);
   }
 }
 
-/**
- * Thêm MCP server vào config
- */
 export function addMCPServerToConfig(
   serverId: string,
   serverConfig: MCPServerConfig,
@@ -249,38 +237,23 @@ export function addMCPServerToConfig(
   options?: { dryRun?: boolean; verbose?: boolean }
 ): void {
   const config = readConfig(configPath);
-  
-  if (!config.mcp) {
-    config.mcp = {};
-  }
-  
-  config.mcp[serverId] = {
-    ...(config.mcp[serverId] || {}),
-    ...serverConfig
-  };
-  
+  config.mcp = config.mcp || {};
+  config.mcp[serverId] = { ...(config.mcp[serverId] || {}), ...serverConfig };
   writeConfig(config, configPath, options);
 }
 
-/**
- * Xóa MCP server khỏi config
- */
 export function removeMCPServerFromConfig(
   serverId: string,
   configPath?: string,
   options?: { dryRun?: boolean; verbose?: boolean }
 ): void {
   const config = readConfig(configPath);
-  
   if (config.mcp && serverId in config.mcp) {
     delete config.mcp[serverId];
     writeConfig(config, configPath, options);
   }
 }
 
-/**
- * Set model mặc định
- */
 export function setDefaultModel(
   model: string,
   configPath?: string,
@@ -291,9 +264,6 @@ export function setDefaultModel(
   writeConfig(config, configPath, options);
 }
 
-/**
- * Khởi tạo config mới với giá trị mặc định an toàn
- */
 export function initConfig(
   configPath?: string,
   options?: { dryRun?: boolean; verbose?: boolean }
@@ -301,16 +271,9 @@ export function initConfig(
   const defaultConfig: OpenCodeConfig = {
     $schema: CONFIG_SCHEMA,
     autoupdate: true,
-    server: {
-      port: 4096
-    },
-    permission: {
-      edit: 'ask',
-      bash: 'ask'
-    },
-    snapshot: false
+    permission: { edit: 'ask', bash: 'ask' },
+    snapshot: false,
   };
-  
   writeConfig(defaultConfig, configPath, options);
   return defaultConfig;
 }
