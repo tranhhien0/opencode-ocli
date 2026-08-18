@@ -1,139 +1,80 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Skill commands
- */
-
 import { Command } from 'commander';
 import * as fs from 'node:fs';
-import { readConfig } from '../lib/config.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 const skill = new Command('skill');
 
+function skillRoots(project: boolean): string[] {
+  const roots: string[] = [];
+  if (project) roots.push(path.join(process.cwd(), '.opencode', 'skills'));
+  else roots.push(path.join(process.cwd(), '.opencode', 'skills'));
+  roots.push(path.join(os.homedir(), '.config', 'opencode', 'skills'));
+  return [...new Set(roots)];
+}
+
+function listSkillDirs(): string[] {
+  const result = new Set<string>();
+  for (const root of skillRoots(false)) {
+    if (!fs.existsSync(root)) continue;
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (entry.isDirectory() && fs.existsSync(path.join(root, entry.name, 'SKILL.md'))) result.add(entry.name);
+    }
+  }
+  return [...result].sort();
+}
+
 skill.command('list')
-  .description('Liệt kê agent skills khả dụng')
+  .description('Liệt kê native OpenCode skills')
   .option('--json', 'Output JSON')
-  .action((options) => {
+  .action(options => {
     try {
-      const config = readConfig();
-      
-      // Skills có thể được định nghĩa trong instructions hoặc thư mục .opencode/skills
-      const instructions = config.instructions || [];
-      
-      // Check project folder cho .opencode/skills
-      const skillsDir = './.opencode/skills';
-      let localSkills: string[] = [];
-      if (fs.existsSync(skillsDir)) {
-        localSkills = fs.readdirSync(skillsDir)
-          .filter(f => f.endsWith('.md') || f.endsWith('.txt'));
-      }
-      
-      const result = {
-        instructions,
-        local_skills: localSkills
-      };
-      
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log('\n🎯 Agent Skills:');
-        console.log('\n  Instructions:');
-        if (instructions.length === 0) {
-          console.log('    (none)');
-        } else {
-          instructions.forEach(i => console.log(`    • ${i}`));
-        }
-        
-        console.log('\n  Local skills:');
-        if (localSkills.length === 0) {
-          console.log('    (none)');
-        } else {
-          localSkills.forEach(s => console.log(`    • ${s}`));
-        }
+      const skills = listSkillDirs();
+      if (options.json) console.log(JSON.stringify({ skills }, null, 2));
+      else {
+        console.log('\n🎯 OpenCode Skills:');
+        skills.forEach(name => console.log(`  • ${name}`));
+        if (!skills.length) console.log('  (none)');
         console.log();
       }
     } catch (error) {
       console.error('Error listing skills:', (error as Error).message);
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 
 skill.command('enable <name>')
-  .description('Enable skill')
-  .option('--project', 'Áp dụng cho project hiện tại')
-  .option('--dry-run', 'Không ghi file, chỉ hiển thị')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (name, options) => {
-    try {
-      const dryRun = options.dryRun || false;
-      
-      if (dryRun) {
-        console.log(`[DRY-RUN] Would enable skill: ${name}`);
-        return;
-      }
-      
-      const config = readConfig(options.project ? undefined : undefined);
-      
-      if (!config.instructions) {
-        config.instructions = [];
-      }
-      
-      if (config.instructions.includes(name)) {
-        console.log(`Skill "${name}" đã được enable rồi.`);
-        return;
-      }
-      
-      config.instructions.push(name);
-      
-      const { writeConfig } = await import('../lib/config.js');
-      writeConfig(config, options.project ? undefined : undefined, {
-        dryRun: false,
-        verbose: options.verbose
-      });
-      
-      const scope = options.project ? 'project' : 'global';
-      console.log(`✓ Đã enable skill "${name}" (${scope})`);
-      console.log(`  Added to instructions array in opencode.json`);
-    } catch (error) {
-      console.error('Error enabling skill:', (error as Error).message);
-      process.exit(1);
+  .description('Enable/report a native skill by creating no implicit instructions')
+  .option('--project', 'Project skill')
+  .action(name => {
+    const exists = skillRoots(Boolean(name)).some(root => fs.existsSync(path.join(root, name, 'SKILL.md')));
+    if (!exists) {
+      console.error(`Skill "${name}" chưa tồn tại. Tạo ${name}/SKILL.md trong .opencode/skills hoặc ~/.config/opencode/skills.`);
+      process.exitCode = 1;
+      return;
     }
+    console.log(`✓ Skill "${name}" is available to OpenCode.`);
   });
 
 skill.command('disable <name>')
-  .description('Disable skill')
-  .option('--project', 'Áp dụng cho project hiện tại')
-  .option('--dry-run', 'Không ghi file, chỉ hiển thị')
-  .option('-v, --verbose', 'Verbose mode')
-  .action(async (name, options) => {
-    try {
-      const config = readConfig(options.project ? undefined : undefined);
-      
-      if (!config.instructions || config.instructions.length === 0) {
-        console.log(`Không có skill nào được enable.`);
-        return;
-      }
-      
-      const index = config.instructions.indexOf(name);
-      if (index === -1) {
-        console.log(`Skill "${name}" không tìm thấy trong danh sách enabled.`);
-        return;
-      }
-      
-      config.instructions.splice(index, 1);
-      
-      const { writeConfig } = await import('../lib/config.js');
-      writeConfig(config, options.project ? undefined : undefined, {
-        dryRun: options.dryRun,
-        verbose: options.verbose
-      });
-      
-      const scope = options.project ? 'project' : 'global';
-      console.log(`✓ Đã disable skill "${name}" (${scope})`);
-      console.log(`  Removed from instructions array in opencode.json`);
-    } catch (error) {
-      console.error('Error disabling skill:', (error as Error).message);
-      process.exit(1);
+  .description('Xóa native skill khỏi local scope')
+  .option('--project', 'Project scope')
+  .option('--force', 'Required for destructive removal')
+  .action((name, options) => {
+    if (!options.force) {
+      console.error('Refusing to delete a skill without --force.');
+      process.exitCode = 2;
+      return;
     }
+    const roots = skillRoots(Boolean(options.project));
+    const matches = roots.map(root => path.join(root, name)).filter(dir => fs.existsSync(dir));
+    if (!matches.length) {
+      console.error(`Skill "${name}" không tìm thấy.`);
+      process.exitCode = 1;
+      return;
+    }
+    for (const dir of matches) fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`✓ Đã disable skill "${name}"`);
   });
 
 export { skill };
