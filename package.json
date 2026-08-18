@@ -1,0 +1,43 @@
+{
+  "name": "ocx",
+  "version": "0.1.0",
+  "description": "OpenCode eXtension CLI - Quản trị nhanh cho OpenCode",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "ocx": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "opencode",
+    "cli",
+    "admin"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^14.0.3",
+    "jsonc-parser": "^3.3.1",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  }
+}
