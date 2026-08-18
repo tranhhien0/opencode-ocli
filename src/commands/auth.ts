@@ -1,0 +1,48 @@
+/**
+ * OCX - OpenCode eXtension CLI
+ * Auth commands với dynamic provider discovery
+ */
+
+import { Command } from 'commander';
+import { listAuthProviders } from '../lib/opencode-shell.js';
+
+const auth = new Command('auth');
+
+auth.command('list')
+  .description('Liệt kê providers đã auth')
+  .option('--json', 'Output JSON')
+  .option('-v, --verbose', 'Verbose mode')
+  .action(async (options) => {
+    try {
+      const providers = await listAuthProviders({ verbose: options.verbose });
+      
+      if (options.json) {
+        console.log(JSON.stringify(providers, null, 2));
+      } else {
+        console.log('\n🔑 Authenticated providers:');
+        if (providers.length === 0) {
+          console.log('  (none)');
+        } else {
+          providers.forEach(p => console.log(`  ✓ ${p}`));
+        }
+        console.log();
+      }
+    } catch (error) {
+      console.error('Error listing auth:', (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+auth.command('logout <provider>')
+  .description('Logout provider')
+  .action((providerId) => {
+    console.log(`Note: Use opencode auth logout ${providerId} for full logout`);
+  });
+
+auth.command('verify <provider>')
+  .description('Verify provider credentials')
+  .action((providerId) => {
+    console.log(`Note: Use ocx provider verify ${providerId} instead`);
+  });
+
+export { auth };
