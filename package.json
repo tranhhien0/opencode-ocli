@@ -1,6 +1,6 @@
 {
   "name": "opencode-ocli",
-  "version": "1.260818.11802",
+  "version": "1.260818.11824",
   "description": "OpenCode eXtension CLI - Quản trị nhanh cho OpenCode",
   "type": "module",
   "main": "dist/index.js",
