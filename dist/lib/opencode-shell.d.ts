@@ -10,8 +10,12 @@ export interface OpenCodeShellOptions {
 }
 /**
  * Chạy lệnh opencode và trả về output
+ * Supports timeout với proper process termination (SIGTERM → grace → SIGKILL)
  */
-export declare function runOpenCodeCommand(args: string[], options?: OpenCodeShellOptions): Promise<{
+export declare function runOpenCodeCommand(args: string[], options?: OpenCodeShellOptions & {
+    timeout?: number;
+    signal?: AbortSignal;
+}): Promise<{
     stdout: string;
     stderr: string;
     exitCode: number;

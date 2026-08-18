@@ -6,10 +6,12 @@ import { spawn } from 'node:child_process';
 import { isVerbose } from './env.js';
 /**
  * Chạy lệnh opencode và trả về output
+ * Supports timeout với proper process termination (SIGTERM → grace → SIGKILL)
  */
 export async function runOpenCodeCommand(args, options) {
     const verbose = options?.verbose ?? isVerbose();
     const dryRun = options?.dryRun ?? false;
+    const timeoutMs = options?.timeout;
     if (dryRun) {
         console.log(`[DRY-RUN] Would run: opencode ${args.join(' ')}`);
         return { stdout: '', stderr: '', exitCode: 0 };
@@ -27,6 +29,61 @@ export async function runOpenCodeCommand(args, options) {
         const proc = spawn(opencodePath, args, spawnOptions);
         let stdout = '';
         let stderr = '';
+        let timeoutId;
+        let settled = false;
+        // Handle external abort signal (from caller's AbortController)
+        const onAbort = () => {
+            if (settled)
+                return;
+            if (verbose) {
+                console.log(`[OPENCODE] Abort signal received, terminating process...`);
+            }
+            // Send SIGTERM first
+            proc.kill('SIGTERM');
+            // Grace period rồi SIGKILL
+            setTimeout(() => {
+                if (!proc.killed) {
+                    if (verbose) {
+                        console.log(`[OPENCODE] Process still running after SIGTERM, sending SIGKILL...`);
+                    }
+                    proc.kill('SIGKILL');
+                }
+            }, 2000); // 2 second grace period
+        };
+        if (options?.signal) {
+            if (options.signal.aborted) {
+                onAbort();
+            }
+            else {
+                options.signal.addEventListener('abort', onAbort, { once: true });
+            }
+        }
+        // Setup timeout nếu có
+        if (timeoutMs) {
+            timeoutId = setTimeout(() => {
+                if (settled)
+                    return;
+                if (verbose) {
+                    console.log(`[OPENCODE] Timeout after ${timeoutMs}ms, terminating process...`);
+                }
+                // Send SIGTERM first
+                proc.kill('SIGTERM');
+                // Grace period rồi SIGKILL
+                setTimeout(() => {
+                    if (!proc.killed) {
+                        if (verbose) {
+                            console.log(`[OPENCODE] Process still running after SIGTERM, sending SIGKILL...`);
+                        }
+                        proc.kill('SIGKILL');
+                    }
+                }, 2000); // 2 second grace period
+                // Clear timeout timer để không gọi lại
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = undefined;
+                }
+            }, timeoutMs);
+        }
         if (proc.stdout) {
             proc.stdout.on('data', (data) => {
                 const chunk = data.toString();
@@ -46,10 +103,13 @@ export async function runOpenCodeCommand(args, options) {
             });
         }
         proc.on('error', (err) => {
+            settled = true;
+            if (timeoutId)
+                clearTimeout(timeoutId);
             if (err.message.includes('ENOENT')) {
-                reject(new Error('Không tìm thấy lệnh `opencode`. Vui lòng cài đặt OpenCode trước:\n' +
-                    '  npm install -g opencode\n' +
-                    'hoặc\n' +
+                reject(new Error('Không tìm thấy lệnh `opencode`. Vui lòng cài đặt OpenCode trước:\\n' +
+                    '  npm install -g opencode\\n' +
+                    'hoặc\\n' +
                     '  curl -sSL https://opencode.ai/install | bash'));
             }
             else {
@@ -57,11 +117,19 @@ export async function runOpenCodeCommand(args, options) {
             }
         });
         proc.on('close', (exitCode) => {
+            settled = true;
+            if (timeoutId)
+                clearTimeout(timeoutId);
             resolve({
                 stdout,
                 stderr,
                 exitCode: exitCode ?? 1
             });
+        });
+        proc.on('exit', () => {
+            settled = true;
+            if (timeoutId)
+                clearTimeout(timeoutId);
         });
     });
 }
@@ -94,7 +162,7 @@ export async function listModels(providerId, options) {
     }
     catch {
         // Fallback: parse từ text output
-        return result.stdout.split('\n').filter(line => line.trim().length > 0);
+        return result.stdout.split('\\n').filter(line => line.trim().length > 0);
     }
 }
 /**
@@ -122,7 +190,7 @@ export async function listAuthProviders(options) {
         return [];
     }
     catch {
-        return result.stdout.split('\n').filter(line => line.trim().length > 0);
+        return result.stdout.split('\\n').filter(line => line.trim().length > 0);
     }
 }
 /**
@@ -176,8 +244,8 @@ export async function verifyProvider(providerId, modelId, options) {
     // Kiểm tra nếu provider trùng với provider preload
     const preloadedProviders = ['openai', 'anthropic', 'google', 'groq'];
     if (preloadedProviders.includes(providerId.toLowerCase())) {
-        console.warn(`\x1b[33m⚠ Cảnh báo: Provider "${providerId}" là provider mặc định của OpenCode.\x1b[0m`);
-        console.warn(`\x1b[33m  Nếu bạn đang cấu hình lại, hãy đảm bảo API key được cập nhật đúng.\x1b[0m\n`);
+        console.warn(`\\x1b[33m⚠ Cảnh báo: Provider "${providerId}" là provider mặc định của OpenCode.\\x1b[0m`);
+        console.warn(`\\x1b[33m  Nếu bạn đang cấu hình lại, hãy đảm bảo API key được cập nhật đúng.\\x1b[0m\\n`);
     }
     // Tạo AbortController cho timeout
     const abortController = new AbortController();
@@ -198,7 +266,7 @@ export async function verifyProvider(providerId, modelId, options) {
         console.log(`[VERIFY] Testing ${providerId}/${modelId} with timeout ${timeout}ms...`);
     }
     try {
-        const result = await runOpenCodeCommand(args, { ...options, verbose: false });
+        const result = await runOpenCodeCommand(args, { ...options, verbose: false, timeout, signal: abortController.signal });
         clearTimeout(timeoutId);
         if (result.exitCode !== 0) {
             // Phân tích lỗi chi tiết

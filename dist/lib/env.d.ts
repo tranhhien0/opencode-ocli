@@ -33,11 +33,16 @@ export declare function isVerbose(flagVerbose?: boolean): boolean;
 export declare function isDryRun(flagDryRun?: boolean): boolean;
 /**
  * Lấy thư mục config
- * Ưu tiên: OCX_CONFIG_DIR > OPENCODE_CONFIG_DIR > ~/.local/share/ocx
+ * Ưu tiên: OPENCODE_CONFIG_DIR > OpenCode default (~/.config/opencode)
  */
 export declare function getConfigDir(flagProject?: boolean): string;
 /**
  * Lấy path tới opencode.json
+ * P0.1: Phải resolve đúng theo OpenCode hiện tại
+ * Ưu tiên:
+ * 1. OPENCODE_CONFIG env var (absolute path)
+ * 2. Project mode: <cwd>/opencode.json
+ * 3. Global: <configDir>/config.json (support .json / .jsonc)
  */
 export declare function getConfigPath(flagProject?: boolean): string;
 /**
