@@ -96,44 +96,50 @@ export async function listModels(providerId?: string, options?: OpenCodeShellOpt
   const args = ['models'];
   if (providerId) args.push(providerId);
   if (options?.refresh) args.push('--refresh');
-  args.push('--json');
   const result = await runOpenCodeCommand(args, options);
   if (result.exitCode !== 0) throw new Error(`opencode models failed: ${result.stderr}`);
-  const data = JSON.parse(result.stdout);
-  if (!Array.isArray(data)) return [];
-  return data.map((m: unknown) => {
-    if (typeof m === 'string') return m;
-    if (m && typeof m === 'object' && 'id' in m) return String((m as { id: unknown }).id);
-    return String(m);
-  });
+  return result.stdout.split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.includes('/'));
 }
 
 export async function listAuthProviders(options?: OpenCodeShellOptions): Promise<string[]> {
-  const result = await runOpenCodeCommand(['auth', 'list', '--json'], options);
-  if (result.exitCode !== 0) throw new Error(`opencode auth list failed: ${result.stderr}`);
-  const data = JSON.parse(result.stdout);
-  if (!Array.isArray(data)) return [];
-  return data.map((p: unknown) => {
-    if (typeof p === 'string') return p;
-    if (p && typeof p === 'object' && 'id' in p) return String((p as { id: unknown }).id);
-    return String(p);
-  });
+  const result = await runOpenCodeCommand(['providers', 'list'], options);
+  if (result.exitCode !== 0) throw new Error(`opencode providers list failed: ${result.stderr}`);
+  const providers: string[] = [];
+  const credentialMatch = result.stdout.match(/(\d+)\s+credentials?/);
+  if (credentialMatch && parseInt(credentialMatch[1], 10) > 0) {
+    const credBlock = result.stdout.split('Credentials')[1]?.split('Environment')[0] || '';
+    for (const line of credBlock.split('\n')) {
+      const m = line.match(/[●✓]\s+(\S+)/);
+      if (m) providers.push(m[1]);
+    }
+  }
+  const envBlock = result.stdout.split('Environment')[1] || '';
+  for (const line of envBlock.split('\n')) {
+    const m = line.match(/[●✓]\s+.+?\s+(\S+)/);
+    if (m) providers.push(m[1]);
+  }
+  return providers;
 }
 
 export async function listSessions(options?: OpenCodeShellOptions): Promise<Array<{ id: string; createdAt: number }>> {
-  const result = await runOpenCodeCommand(['session', 'list', '--json'], options);
+  const result = await runOpenCodeCommand(['session', 'list', '--format', 'json'], options);
   if (result.exitCode !== 0) throw new Error(`opencode session list failed: ${result.stderr}`);
   const data = JSON.parse(result.stdout);
-  return Array.isArray(data) ? data as Array<{ id: string; createdAt: number }> : [];
+  return Array.isArray(data) ? (data as Array<{ id: string; created?: number; createdAt?: number }>).map(s => ({ id: s.id, createdAt: s.createdAt || s.created || 0 })) : [];
 }
 
 export async function exportSession(sessionId: string | null, outputPath: string, sanitize = false, options?: OpenCodeShellOptions): Promise<void> {
+  if (options?.dryRun) {
+    console.log(`[DRY-RUN] Would export session ${sessionId || 'current'} to: ${outputPath}`);
+    return;
+  }
   const args = ['export'];
   if (sessionId) args.push(sessionId);
-  args.push('--output', outputPath);
   if (sanitize) args.push('--sanitize');
   const result = await runOpenCodeCommand(args, { ...options });
   if (result.exitCode !== 0) throw new Error(`opencode export failed: ${result.stderr}`);
+  const fs = await import('node:fs');
+  fs.writeFileSync(outputPath, result.stdout, 'utf-8');
 }
 
 export async function importSession(inputPath: string, options?: OpenCodeShellOptions): Promise<void> {
@@ -142,7 +148,7 @@ export async function importSession(inputPath: string, options?: OpenCodeShellOp
 }
 
 export async function verifyProvider(providerId: string, modelId: string, options?: OpenCodeShellOptions & { timeout?: number }): Promise<{ valid: boolean; error?: string }> {
-  const args = ['run', '--model', `${providerId}/${modelId}`, '--non-interactive', 'Say "OK" in exactly 2 characters'];
+  const args = ['run', '--model', `${providerId}/${modelId}`, '--auto', 'Say "OK" in exactly 2 characters'];
   try {
     const result = await runOpenCodeCommand(args, { ...options, verbose: false, timeout: options?.timeout ?? 10000 });
     if (result.exitCode === 0) return { valid: true };
@@ -168,8 +174,11 @@ export async function installPlugin(moduleName: string, globalInstall = false, f
 }
 
 export async function uninstallPlugin(moduleName: string, options?: OpenCodeShellOptions): Promise<void> {
-  const result = await runOpenCodeCommand(['plugin', 'uninstall', moduleName], options);
-  if (result.exitCode !== 0) throw new Error(`opencode plugin uninstall failed: ${result.stderr}`);
+  if (options?.dryRun) {
+    console.error(`[DRY-RUN] Would remove plugin: ${moduleName} from config`);
+    return;
+  }
+  console.error(`Note: opencode does not have a built-in plugin uninstall. Removing "${moduleName}" from config only.`);
 }
 
 export async function authMCPServer(serverId: string, options?: OpenCodeShellOptions): Promise<void> {

@@ -61,9 +61,7 @@ session.command('export [sessionId]')
     try {
       const outputPath = options.output || `session-${Date.now()}.json`;
       await exportSession(sessionId || null, outputPath, Boolean(options.sanitize), { verbose: options.verbose, dryRun: options.dryRun });
-      if (options.dryRun) {
-        console.error(`[DRY-RUN] Would export session ${sessionId || 'current'} to: ${outputPath}`);
-      } else {
+      if (!options.dryRun) {
         console.log(`✓ Exported session to: ${outputPath}`);
       }
     } catch (error) {

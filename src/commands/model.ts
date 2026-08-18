@@ -135,8 +135,9 @@ model.command('variant <model> <variantName>')
       if (options.textVerbosity && !validLevels.includes(options.textVerbosity)) throw createOCXError('Invalid text-verbosity', 'invalid_input');
       const variantConfig: Record<string, unknown> = {};
       if (options.reasoningEffort) variantConfig.reasoningEffort = options.reasoningEffort;
+      else if (validLevels.includes(variantName)) variantConfig.reasoningEffort = variantName;
       if (options.textVerbosity) variantConfig.textVerbosity = options.textVerbosity;
-      if (!Object.keys(variantConfig).length) throw createOCXError('Variant cần ít nhất một option', 'invalid_input');
+      if (!Object.keys(variantConfig).length) throw createOCXError('Variant cần ít nhất một option (--reasoning-effort hoặc --text-verbosity)', 'invalid_input', `Valid levels: ${validLevels.join(', ')}`);
       config.provider[providerId].models![modelId].variants![variantName] = variantConfig as never;
       writeConfig(config, configPath, { dryRun: options.dryRun, verbose: options.verbose });
       printSuccess(`Đã set variant "${variantName}" cho ${modelArg}`);

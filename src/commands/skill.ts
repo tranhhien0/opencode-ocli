@@ -46,14 +46,23 @@ skill.command('list')
 skill.command('enable <name>')
   .description('Enable/report a native skill by creating no implicit instructions')
   .option('--project', 'Project skill')
-  .action(name => {
+  .option('--dry-run', 'Dry run')
+  .action((name, options) => {
     const exists = skillRoots(Boolean(name)).some(root => fs.existsSync(path.join(root, name, 'SKILL.md')));
     if (!exists) {
-      console.error(`Skill "${name}" chưa tồn tại. Tạo ${name}/SKILL.md trong .opencode/skills hoặc ~/.config/opencode/skills.`);
+      if (options.dryRun) {
+        console.error(`[DRY-RUN] Skill "${name}" does not exist. Would create ${name}/SKILL.md in .opencode/skills or ~/.config/opencode/skills.`);
+      } else {
+        console.error(`Skill "${name}" chưa tồn tại. Tạo ${name}/SKILL.md trong .opencode/skills hoặc ~/.config/opencode/skills.`);
+      }
       process.exitCode = 1;
       return;
     }
-    console.log(`✓ Skill "${name}" is available to OpenCode.`);
+    if (options.dryRun) {
+      console.log(`[DRY-RUN] Would enable skill "${name}"`);
+    } else {
+      console.log(`✓ Skill "${name}" is available to OpenCode.`);
+    }
   });
 
 skill.command('disable <name>')
