@@ -57,6 +57,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: test -f dist/index.js
+      - run: npm run version:bump:verify
       - uses: actions/upload-artifact@v7
         with:
           name: dist
