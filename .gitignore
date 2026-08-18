@@ -1,11 +1,4 @@
 ```
-# Coverage reports
-coverage/
-
-# Dependencies
-node_modules/
-
-# Build artifacts
-*.js
-*.ts
+# CI/CD related
+.github/workflows/
 ```
