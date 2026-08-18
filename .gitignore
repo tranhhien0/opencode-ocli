@@ -1,29 +1,15 @@
 ```
+# Build artifacts
+dist/
+build/
+*.js
+
 # Dependencies
 node_modules/
 
-# Build artifacts
-dist/
+# Testing
+.vite/
 
 # Environment
-.env
-.env.local
-.env.*
-
-# Package manager
-package-lock.json
-
-# IDE
-.vscode/
-.idea/
-
-# Logs
-*.log
-
-# Temp files
-*.tmp
-*.swp
-
-# Cache
-.vite/
+.env*
 ```

@@ -59,6 +59,11 @@ skill.command('enable <name>')
     .option('-v, --verbose', 'Verbose mode')
     .action(async (name, options) => {
     try {
+        const dryRun = options.dryRun || false;
+        if (dryRun) {
+            console.log(`[DRY-RUN] Would enable skill: ${name}`);
+            return;
+        }
         const config = readConfig(options.project ? undefined : undefined);
         if (!config.instructions) {
             config.instructions = [];
@@ -70,7 +75,7 @@ skill.command('enable <name>')
         config.instructions.push(name);
         const { writeConfig } = await import('../lib/config.js');
         writeConfig(config, options.project ? undefined : undefined, {
-            dryRun: options.dryRun,
+            dryRun: false,
             verbose: options.verbose
         });
         const scope = options.project ? 'project' : 'global';
