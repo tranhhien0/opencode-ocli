@@ -8,6 +8,8 @@
  */
 
 import { ENV_VARS } from './types.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 /**
  * Lấy giá trị từ environment variable
@@ -102,46 +104,79 @@ export function isDryRun(flagDryRun?: boolean): boolean {
 }
 
 /**
- * Lấy thư mục config
- * Ưu tiên: OCX_CONFIG_DIR > OPENCODE_CONFIG_DIR > ~/.local/share/ocx
+ * Lấy thư mục config mặc định của OpenCode
+ * Theo OpenCode hiện tại: ~/.config/opencode hoặc XDG_CONFIG_HOME/opencode
  */
-export function getConfigDir(flagProject?: boolean): string {
-  if (flagProject) {
-    // Project mode: dùng ./.opencode hoặc cwd
-    return process.cwd();
+function getDefaultConfigDir(): string {
+  // Tôn trọng XDG_CONFIG_HOME nếu được set
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  if (xdgConfigHome) {
+    return path.join(xdgConfigHome, 'opencode');
   }
   
-  return resolveOption(
-    undefined,
-    ENV_VARS.OPENCODE_CONFIG_DIR,
-    undefined,
-    getDefaultConfigDir()
-  );
+  // Mặc định: ~/.config/opencode
+  const home = os.homedir();
+  return path.join(home, '.config', 'opencode');
 }
 
 /**
- * Thư mục config mặc định
+ * Lấy thư mục config
+ * Ưu tiên: OPENCODE_CONFIG_DIR > OpenCode default (~/.config/opencode)
  */
-function getDefaultConfigDir(): string {
-  const home = process.env.HOME || process.env.USERPROFILE || '~';
-  return `${home}/.local/share/ocx`;
+export function getConfigDir(flagProject?: boolean): string {
+  if (flagProject) {
+    // Project mode: dùng cwd
+    return process.cwd();
+  }
+  
+  // Tôn trọng OPENCODE_CONFIG_DIR nếu được set
+  const envConfigDir = process.env[ENV_VARS.OPENCODE_CONFIG_DIR];
+  if (envConfigDir) {
+    return envConfigDir;
+  }
+  
+  return getDefaultConfigDir();
 }
 
 /**
  * Lấy path tới opencode.json
+ * P0.1: Phải resolve đúng theo OpenCode hiện tại
+ * Ưu tiên:
+ * 1. OPENCODE_CONFIG env var (absolute path)
+ * 2. Project mode: <cwd>/opencode.json
+ * 3. Global: <configDir>/config.json (support .json / .jsonc)
  */
 export function getConfigPath(flagProject?: boolean): string {
   if (flagProject) {
-    return `${process.cwd()}/opencode.json`;
+    return path.join(process.cwd(), 'opencode.json');
   }
   
-  // Tôn trọng OPENCODE_CONFIG nếu được set
+  // Tôn trọng OPENCODE_CONFIG nếu được set (absolute path)
   const envConfig = process.env[ENV_VARS.OPENCODE_CONFIG];
   if (envConfig) {
     return envConfig;
   }
   
-  return `${getConfigDir(false)}/config.json`;
+  // Default: <configDir>/config.json
+  const configDir = getConfigDir(false);
+  const configPath = path.join(configDir, 'config.json');
+  
+  // Support .jsonc extension nếu tồn tại
+  const jsoncPath = path.join(configDir, 'config.jsonc');
+  if (!existsSync(configPath) && existsSync(jsoncPath)) {
+    return jsoncPath;
+  }
+  
+  return configPath;
+}
+
+function existsSync(filePath: string): boolean {
+  try {
+    const fs = require('node:fs');
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
 }
 
 /**
