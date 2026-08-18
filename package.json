@@ -17,7 +17,9 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "version:bump": "node scripts/bump-version.mjs",
+    "version:bump:verify": "node scripts/bump-version.mjs --verify"
   },
   "repository": {
     "type": "git",
