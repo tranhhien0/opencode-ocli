@@ -1,9 +1,4 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Module spawn tiến trình `opencode` con và xử lý output
- */
-
-import { spawn, SpawnOptions } from 'node:child_process';
+import { spawn, type SpawnOptions } from 'node:child_process';
 import { isVerbose } from './env.js';
 
 export interface OpenCodeShellOptions {
@@ -11,27 +6,17 @@ export interface OpenCodeShellOptions {
   dryRun?: boolean;
   cwd?: string;
   env?: Record<string, string>;
+  timeout?: number;
+  signal?: AbortSignal;
 }
 
-/**
- * Chạy lệnh opencode và trả về output
- * Supports timeout với proper process termination (SIGTERM → grace → SIGKILL)
- */
-export async function runOpenCodeCommand(
-  args: string[],
-  options?: OpenCodeShellOptions & { timeout?: number; signal?: AbortSignal }
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+type CommandResult = { stdout: string; stderr: string; exitCode: number };
+
+export async function runOpenCodeCommand(args: string[], options?: OpenCodeShellOptions): Promise<CommandResult> {
   const verbose = options?.verbose ?? isVerbose();
-  const dryRun = options?.dryRun ?? false;
-  const timeoutMs = options?.timeout;
-
-  if (dryRun) {
-    console.log(`[DRY-RUN] Would run: opencode ${args.join(' ')}`);
+  if (options?.dryRun) {
+    console.error(`[DRY-RUN] Would run: opencode ${args.join(' ')}`);
     return { stdout: '', stderr: '', exitCode: 0 };
-  }
-
-  if (verbose) {
-    console.log(`[OPENCODE] Running: opencode ${args.join(' ')}`);
   }
 
   return new Promise((resolve, reject) => {
@@ -39,484 +24,173 @@ export async function runOpenCodeCommand(
     const spawnOptions: SpawnOptions = {
       cwd: options?.cwd || process.cwd(),
       env: { ...process.env, ...(options?.env || {}) },
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
     };
-
     const proc = spawn(opencodePath, args, spawnOptions);
-
     let stdout = '';
     let stderr = '';
-    let timeoutId: NodeJS.Timeout | undefined;
     let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
 
-    // Handle external abort signal (from caller's AbortController)
-    const onAbort = () => {
-      if (settled) return;
-
-      if (verbose) {
-        console.log(`[OPENCODE] Abort signal received, terminating process...`);
-      }
-
-      // Send SIGTERM first
-      proc.kill('SIGTERM');
-
-      // Grace period rồi SIGKILL
-      setTimeout(() => {
-        if (!proc.killed) {
-          if (verbose) {
-            console.log(`[OPENCODE] Process still running after SIGTERM, sending SIGKILL...`);
-          }
-          proc.kill('SIGKILL');
-        }
-      }, 2000); // 2 second grace period
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      options?.signal?.removeEventListener('abort', onAbort);
     };
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const resolveOnce = (result: CommandResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const terminate = () => {
+      if (settled) return;
+      proc.kill('SIGTERM');
+      killTimer = setTimeout(() => {
+        if (!settled && !proc.killed) proc.kill('SIGKILL');
+      }, 2000);
+    };
+    const onAbort = () => terminate();
 
     if (options?.signal) {
-      if (options.signal.aborted) {
-        onAbort();
+      if (options.signal.aborted) terminate();
+      else options.signal.addEventListener('abort', onAbort, { once: true });
+    }
+    if (options?.timeout && options.timeout > 0) {
+      timer = setTimeout(() => {
+        terminate();
+        rejectOnce(new Error(`OpenCode command timed out after ${options.timeout}ms`));
+      }, options.timeout);
+    }
+
+    proc.stdout?.on('data', (data: Buffer | string) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      if (verbose) process.stderr.write(chunk);
+    });
+    proc.stderr?.on('data', (data: Buffer | string) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      if (verbose) process.stderr.write(chunk);
+    });
+    proc.once('error', (error) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        rejectOnce(new Error('Không tìm thấy lệnh `opencode`. Vui lòng cài đặt OpenCode trước.'));
       } else {
-        options.signal.addEventListener('abort', onAbort, { once: true });
-      }
-    }
-
-    // Setup timeout nếu có
-    if (timeoutMs) {
-      timeoutId = setTimeout(() => {
-        if (settled) return;
-
-        if (verbose) {
-          console.log(`[OPENCODE] Timeout after ${timeoutMs}ms, terminating process...`);
-        }
-
-        // Send SIGTERM first
-        proc.kill('SIGTERM');
-
-        // Grace period rồi SIGKILL
-        setTimeout(() => {
-          if (!proc.killed) {
-            if (verbose) {
-              console.log(`[OPENCODE] Process still running after SIGTERM, sending SIGKILL...`);
-            }
-            proc.kill('SIGKILL');
-          }
-        }, 2000); // 2 second grace period
-
-        // Clear timeout timer để không gọi lại
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = undefined;
-        }
-      }, timeoutMs);
-    }
-
-    if (proc.stdout) {
-      proc.stdout.on('data', (data) => {
-        const chunk = data.toString();
-        stdout += chunk;
-        if (verbose) {
-          process.stdout.write(chunk);
-        }
-      });
-    }
-
-    if (proc.stderr) {
-      proc.stderr.on('data', (data) => {
-        const chunk = data.toString();
-        stderr += chunk;
-        if (verbose) {
-          process.stderr.write(chunk);
-        }
-      });
-    }
-
-    proc.on('error', (err) => {
-      settled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-
-      if (err.message.includes('ENOENT')) {
-        reject(new Error(
-          'Không tìm thấy lệnh `opencode`. Vui lòng cài đặt OpenCode trước:\\n' +
-          '  npm install -g opencode\\n' +
-          'hoặc\\n' +
-          '  curl -sSL https://opencode.ai/install | bash'
-        ));
-      } else {
-        reject(err);
+        rejectOnce(error instanceof Error ? error : new Error(String(error)));
       }
     });
-
-    proc.on('close', (exitCode) => {
-      settled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-
-      resolve({
-        stdout,
-        stderr,
-        exitCode: exitCode ?? 1
-      });
-    });
-
-    proc.on('exit', () => {
-      settled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    });
+    proc.once('close', (exitCode) => resolveOnce({ stdout, stderr, exitCode: exitCode ?? 1 }));
   });
 }
 
-/**
- * Chạy opencode models để lấy danh sách models cho provider
- */
-export async function listModels(providerId?: string, options?: OpenCodeShellOptions): Promise<string[]> {
+export async function listModels(providerId?: string, options?: OpenCodeShellOptions & { refresh?: boolean }): Promise<string[]> {
   const args = ['models'];
-  if (providerId) {
-    args.push('--provider', providerId);
-  }
+  if (providerId) args.push(providerId);
+  if (options?.refresh) args.push('--refresh');
   args.push('--json');
-
   const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode models failed: ${result.stderr}`);
-  }
-
-  try {
-    const data = JSON.parse(result.stdout);
-    // Parse dựa trên format output của opencode models --json
-    if (Array.isArray(data)) {
-      return data.map((m: unknown) => {
-        if (typeof m === 'string') return m;
-        if (m && typeof m === 'object' && 'id' in m) return (m as { id: string }).id;
-        return String(m);
-      });
-    }
-    return [];
-  } catch {
-    // Fallback: parse từ text output
-    return result.stdout.split('\\n').filter(line => line.trim().length > 0);
-  }
+  if (result.exitCode !== 0) throw new Error(`opencode models failed: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  if (!Array.isArray(data)) return [];
+  return data.map((m: unknown) => {
+    if (typeof m === 'string') return m;
+    if (m && typeof m === 'object' && 'id' in m) return String((m as { id: unknown }).id);
+    return String(m);
+  });
 }
 
-/**
- * Chạy opencode auth list để lấy danh sách providers đã auth
- */
 export async function listAuthProviders(options?: OpenCodeShellOptions): Promise<string[]> {
-  const args = ['auth', 'list', '--json'];
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    // Nếu lệnh thất bại, trả về mảng rỗng thay vì throw
-    // Không log warning để tránh làm bẩn output khi test
-    return [];
-  }
-
-  try {
-    const data = JSON.parse(result.stdout);
-    if (Array.isArray(data)) {
-      return data.map((p: unknown) => {
-        if (typeof p === 'string') return p;
-        if (p && typeof p === 'object' && 'id' in p) return (p as { id: string }).id;
-        return String(p);
-      });
-    }
-    return [];
-  } catch {
-    return result.stdout.split('\\n').filter(line => line.trim().length > 0);
-  }
+  const result = await runOpenCodeCommand(['auth', 'list', '--json'], options);
+  if (result.exitCode !== 0) throw new Error(`opencode auth list failed: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  if (!Array.isArray(data)) return [];
+  return data.map((p: unknown) => {
+    if (typeof p === 'string') return p;
+    if (p && typeof p === 'object' && 'id' in p) return String((p as { id: unknown }).id);
+    return String(p);
+  });
 }
 
-/**
- * Chạy opencode session list để lấy danh sách sessions
- */
 export async function listSessions(options?: OpenCodeShellOptions): Promise<Array<{ id: string; createdAt: number }>> {
-  const args = ['session', 'list', '--json'];
+  const result = await runOpenCodeCommand(['session', 'list', '--json'], options);
+  if (result.exitCode !== 0) throw new Error(`opencode session list failed: ${result.stderr}`);
+  const data = JSON.parse(result.stdout);
+  return Array.isArray(data) ? data as Array<{ id: string; createdAt: number }> : [];
+}
 
-  const result = await runOpenCodeCommand(args, options);
+export async function exportSession(sessionId: string | null, outputPath: string, sanitize = false, options?: OpenCodeShellOptions): Promise<void> {
+  const args = ['export'];
+  if (sessionId) args.push(sessionId);
+  args.push('--output', outputPath);
+  if (sanitize) args.push('--sanitize');
+  const result = await runOpenCodeCommand(args, { ...options });
+  if (result.exitCode !== 0) throw new Error(`opencode export failed: ${result.stderr}`);
+}
 
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode session list failed: ${result.stderr}`);
-  }
+export async function importSession(inputPath: string, options?: OpenCodeShellOptions): Promise<void> {
+  const result = await runOpenCodeCommand(['import', inputPath], { ...options });
+  if (result.exitCode !== 0) throw new Error(`opencode import failed: ${result.stderr}`);
+}
 
+export async function verifyProvider(providerId: string, modelId: string, options?: OpenCodeShellOptions & { timeout?: number }): Promise<{ valid: boolean; error?: string }> {
+  const args = ['run', '--model', `${providerId}/${modelId}`, '--non-interactive', 'Say "OK" in exactly 2 characters'];
   try {
-    return JSON.parse(result.stdout);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Export session ra file
- */
-export async function exportSession(
-  sessionId: string | null,
-  outputPath: string,
-  sanitize: boolean = false,
-  options?: OpenCodeShellOptions
-): Promise<void> {
-  const args = ['export', '--output', outputPath];
-  if (sessionId) {
-    args.unshift(sessionId);
-  }
-  if (sanitize) {
-    args.push('--sanitize');
-  }
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode export failed: ${result.stderr}`);
-  }
-}
-
-/**
- * Import session từ file
- */
-export async function importSession(
-  inputPath: string,
-  options?: OpenCodeShellOptions
-): Promise<void> {
-  const args = ['import', inputPath];
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode import failed: ${result.stderr}`);
-  }
-}
-
-/**
- * Health check provider bằng cách thử load model nhỏ
- */
-export async function verifyProvider(
-  providerId: string,
-  modelId: string,
-  options?: OpenCodeShellOptions & { timeout?: number }
-): Promise<{ valid: boolean; error?: string }> {
-  const verbose = options?.verbose ?? isVerbose();
-  const timeout = options?.timeout ?? 10000; // Default 10 giây
-
-  // Kiểm tra nếu provider trùng với provider preload
-  const preloadedProviders = ['openai', 'anthropic', 'google', 'groq'];
-  if (preloadedProviders.includes(providerId.toLowerCase())) {
-    console.warn(`\\x1b[33m⚠ Cảnh báo: Provider "${providerId}" là provider mặc định của OpenCode.\\x1b[0m`);
-    console.warn(`\\x1b[33m  Nếu bạn đang cấu hình lại, hãy đảm bảo API key được cập nhật đúng.\\x1b[0m\\n`);
-  }
-
-  // Tạo AbortController cho timeout
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => {
-    abortController.abort();
-    if (verbose) {
-      console.log(`[VERIFY] Timeout after ${timeout}ms`);
-    }
-  }, timeout);
-
-  // Thử chạy một prompt rất nhỏ để verify
-  const args = [
-    'run',
-    '--model', `${providerId}/${modelId}`,
-    '--non-interactive',
-    'Say "OK" in exactly 2 characters'
-  ];
-
-  if (verbose) {
-    console.log(`[VERIFY] Testing ${providerId}/${modelId} with timeout ${timeout}ms...`);
-  }
-
-  try {
-    const result = await runOpenCodeCommand(args, { ...options, verbose: false, timeout, signal: abortController.signal });
-    clearTimeout(timeoutId);
-
-    if (result.exitCode !== 0) {
-      // Phân tích lỗi chi tiết
-      const stderr = result.stderr.toLowerCase();
-      const originalStderr = result.stderr.trim();
-
-      let errorMessage = '';
-      let errorType = 'unknown';
-
-      // Check 401 - Unauthorized / API Key sai
-      if (stderr.includes('401') || stderr.includes('unauthorized') ||
-          stderr.includes('api key') || stderr.includes('authentication')) {
-        errorType = 'invalid_api_key';
-        errorMessage = `Lỗi xác thực (API key sai hoặc thiếu)`;
-      }
-      // Check 404 - Not Found
-      else if (stderr.includes('404') || stderr.includes('not found')) {
-        errorType = 'invalid_model';
-        errorMessage = `Không tìm thấy model hoặc endpoint`;
-      }
-      // Check network errors
-      else if (stderr.includes('econnrefused') || stderr.includes('enotfound') ||
-               stderr.includes('network') || stderr.includes('fetch failed')) {
-        errorType = 'network_error';
-        errorMessage = `Mất kết nối mạng hoặc server không phản hồi`;
-      }
-      // Check timeout
-      else if (stderr.includes('timeout') || stderr.includes('timed out')) {
-        errorType = 'timeout';
-        errorMessage = `Yêu cầu hết thời gian chờ (${timeout}ms)`;
-      }
-      // Default error
-      else {
-        errorType = 'unknown';
-        errorMessage = originalStderr || 'Lỗi không xác định';
-      }
-
-      if (verbose) {
-        console.log(`[VERIFY] Error type: ${errorType}`);
-        console.log(`[VERIFY] Raw stderr: ${originalStderr}`);
-      }
-
-      return {
-        valid: false,
-        error: `${errorType}: ${errorMessage}`
-      };
-    }
-
-    return { valid: true };
+    const result = await runOpenCodeCommand(args, { ...options, verbose: false, timeout: options?.timeout ?? 10000 });
+    if (result.exitCode === 0) return { valid: true };
+    const stderr = result.stderr.trim();
+    const lower = stderr.toLowerCase();
+    if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('api key') || lower.includes('authentication')) return { valid: false, error: 'auth_failed: Lỗi xác thực' };
+    if (lower.includes('404') || lower.includes('not found')) return { valid: false, error: 'invalid_model: Không tìm thấy model hoặc endpoint' };
+    if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') || lower.includes('fetch failed')) return { valid: false, error: 'network_error: Mất kết nối mạng hoặc server không phản hồi' };
+    return { valid: false, error: stderr || 'unknown: Lỗi không xác định' };
   } catch (error) {
-    clearTimeout(timeoutId);
-
-    const err = error as Error;
-
-    // Handle abort (timeout)
-    if (err.name === 'AbortError' || err.message.includes('aborted')) {
-      return {
-        valid: false,
-        error: `timeout: Yêu cầu hết thời gian chờ sau ${timeout}ms`
-      };
-    }
-
-    // Handle ENOENT - opencode not found
-    if (err.message.includes('ENOENT')) {
-      return {
-        valid: false,
-        error: `not_found: Không tìm thấy lệnh opencode`
-      };
-    }
-
-    return {
-      valid: false,
-      error: `unknown: ${err.message}`
-    };
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('timed out')) return { valid: false, error: message };
+    return { valid: false, error: message };
   }
 }
 
-/**
- * Chạy opencode plugin install
- */
-export async function installPlugin(
-  moduleName: string,
-  globalInstall: boolean = false,
-  force: boolean = false,
-  options?: OpenCodeShellOptions
-): Promise<void> {
+export async function installPlugin(moduleName: string, globalInstall = false, force = false, options?: OpenCodeShellOptions): Promise<void> {
   const args = ['plugin', moduleName];
-  if (globalInstall) {
-    args.push('--global');
-  }
-  if (force) {
-    args.push('--force');
-  }
-
+  if (globalInstall) args.push('--global');
+  if (force) args.push('--force');
   const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode plugin install failed: ${result.stderr}`);
-  }
+  if (result.exitCode !== 0) throw new Error(`opencode plugin install failed: ${result.stderr}`);
 }
 
-/**
- * Chạy opencode plugin uninstall
- */
-export async function uninstallPlugin(
-  moduleName: string,
-  options?: OpenCodeShellOptions
-): Promise<void> {
-  const args = ['plugin', 'uninstall', moduleName];
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode plugin uninstall failed: ${result.stderr}`);
-  }
+export async function uninstallPlugin(moduleName: string, options?: OpenCodeShellOptions): Promise<void> {
+  const result = await runOpenCodeCommand(['plugin', 'uninstall', moduleName], options);
+  if (result.exitCode !== 0) throw new Error(`opencode plugin uninstall failed: ${result.stderr}`);
 }
 
-/**
- * Chạy opencode mcp auth
- */
-export async function authMCPServer(
-  serverId: string,
-  options?: OpenCodeShellOptions
-): Promise<void> {
-  const args = ['mcp', 'auth', serverId];
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode mcp auth failed: ${result.stderr}`);
-  }
+export async function authMCPServer(serverId: string, options?: OpenCodeShellOptions): Promise<void> {
+  const result = await runOpenCodeCommand(['mcp', 'auth', serverId], options);
+  if (result.exitCode !== 0) throw new Error(`opencode mcp auth failed: ${result.stderr}`);
 }
 
-/**
- * Chạy opencode mcp logout
- */
-export async function logoutMCPServer(
-  serverId: string,
-  options?: OpenCodeShellOptions
-): Promise<void> {
-  const args = ['mcp', 'logout', serverId];
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode mcp logout failed: ${result.stderr}`);
-  }
+export async function logoutMCPServer(serverId: string, options?: OpenCodeShellOptions): Promise<void> {
+  const result = await runOpenCodeCommand(['mcp', 'logout', serverId], options);
+  if (result.exitCode !== 0) throw new Error(`opencode mcp logout failed: ${result.stderr}`);
 }
 
-/**
- * Logout provider bằng opencode auth logout
- */
-export async function logoutProvider(
-  providerId: string,
-  options?: OpenCodeShellOptions
-): Promise<void> {
-  const args = ['auth', 'logout', providerId];
-
-  const result = await runOpenCodeCommand(args, options);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`opencode auth logout failed: ${result.stderr}`);
-  }
+export async function logoutProvider(providerId: string, options?: OpenCodeShellOptions): Promise<void> {
+  const result = await runOpenCodeCommand(['auth', 'logout', providerId], options);
+  if (result.exitCode !== 0) throw new Error(`opencode auth logout failed: ${result.stderr}`);
 }
 
-/**
- * Verify provider authentication
- */
-export async function verifyProviderAuth(
-  providerId: string,
-  options?: OpenCodeShellOptions & { modelId?: string }
-): Promise<{ valid: boolean; details?: string; error?: string }> {
-  const verbose = options?.verbose ?? isVerbose();
-  const modelId = options?.modelId || 'gpt-4o'; // Default model để test
-
-  if (verbose) {
-    console.log(`[VERIFY] Checking auth for provider: ${providerId}`);
-  }
-
-  // Sử dụng verifyProvider đã có sẵn
-  const result = await verifyProvider(providerId, modelId, options);
-
-  if (result.valid) {
-    return {
-      valid: true,
-      details: `Provider ${providerId} is authenticated and working`
-    };
-  } else {
-    return {
-      valid: false,
-      error: result.error || 'Unknown error'
-    };
-  }
+export async function verifyProviderAuth(providerId: string, options?: OpenCodeShellOptions & { modelId?: string }): Promise<{ valid: boolean; details?: string; error?: string }> {
+  if (!options?.modelId) return { valid: false, error: 'invalid_input: Vui lòng chỉ định --model để verify provider' };
+  const result = await verifyProvider(providerId, options.modelId, options);
+  return result.valid
+    ? { valid: true, details: `Provider ${providerId} authenticated and working with ${options.modelId}` }
+    : { valid: false, error: result.error || 'unknown: Unknown error' };
 }
