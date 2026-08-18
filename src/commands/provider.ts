@@ -1,347 +1,175 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Commands nhóm: provider
- */
-
 import { Command } from 'commander';
 import * as readline from 'node:readline';
 import { ProviderType, ProviderConfig } from '../lib/types.js';
 import { readConfig, addProviderToConfig, removeProviderFromConfig } from '../lib/config.js';
-import { getProviderApiKey, parseList, formatOutput } from '../lib/env.js';
-import { listAuthProviders, verifyProvider, listModels } from '../lib/opencode-shell.js';
-import { classifyError, printError, printSuccess, printWarning, createOCXError } from '../lib/error-handler.js';
-
-// ANSI color codes for inline usage
-const colors = {
-  reset: '\x1b[0m',
-  brightRed: '\x1b[91m',
-  cyan: '\x1b[36m'
-};
+import { getProviderApiKey, parseList } from '../lib/env.js';
+import { listAuthProviders, verifyProvider } from '../lib/opencode-shell.js';
+import { classifyError, printError, printSuccess, createOCXError } from '../lib/error-handler.js';
 
 const provider = new Command('provider');
 
-// Helper cho interactive prompts
 function createInterface() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
+  return readline.createInterface({ input: process.stdin, output: process.stdout });
 }
-
 function prompt(rl: readline.Interface, question: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => resolve(answer));
+  return new Promise(resolve => rl.question(question, resolve));
+}
+
+async function promptSecret(question: string): Promise<string> {
+  if (!process.stdin.isTTY) throw createOCXError('Không thể nhập API key dạng ẩn khi stdin không phải TTY. Dùng biến môi trường.', 'invalid_input');
+  process.stdout.write(question);
+  return new Promise((resolve, reject) => {
+    const stdin = process.stdin;
+    let value = '';
+    const onData = (chunk: Buffer) => {
+      for (const char of chunk.toString()) {
+        if (char === '\n' || char === '\r') {
+          stdin.setRawMode?.(false); stdin.pause(); stdin.off('data', onData); process.stdout.write('\n'); resolve(value); return;
+        }
+        if (char === '\u0003') {
+          stdin.setRawMode?.(false); stdin.pause(); stdin.off('data', onData); reject(new Error('Input cancelled')); return;
+        }
+        if (char === '\u007f') value = value.slice(0, -1); else value += char;
+      }
+    };
+    stdin.setRawMode?.(true); stdin.resume(); stdin.on('data', onData);
   });
 }
 
-/**
- * ocx provider list
- * Liệt kê providers đã kết nối / chưa kết nối
- */
 provider.command('list')
-  .description('Liệt kê các providers (đã auth và available)')
-  .option('--json', 'Output dạng JSON')
+  .description('Liệt kê providers đã auth và trong config')
+  .option('--json', 'Output JSON')
   .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
+  .action(async options => {
     try {
       const config = readConfig();
-      let authedProviders: string[] = [];
-      try {
-        authedProviders = await listAuthProviders({ verbose: options.verbose });
-      } catch {
-        // Ignore error if opencode is not installed
-        authedProviders = [];
-      }
-      
-      // Lấy danh sách providers từ config
-      const configProviders = Object.keys(config.provider || {});
-      
-      // Providers có trong models.dev nhưng chưa auth (hardcoded list phổ biến)
-      const knownProviders = [
-        'anthropic', 'openai', 'google', 'groq', 'deepseek', 'openrouter',
-        'amazon-bedrock', 'azure', 'cloudflare', 'gitlab', 'ollama',
-        'lmstudio', 'together', 'fireworks', 'perplexity', 'mistral'
-      ];
-      
-      const result = {
-        authenticated: authedProviders,
-        in_config: configProviders,
-        available_not_authed: knownProviders.filter(p => 
-          !authedProviders.includes(p) && !configProviders.includes(p)
-        )
-      };
-      
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
+      const authenticated = await listAuthProviders({ verbose: options.verbose });
+      const configured = Object.keys(config.provider || {});
+      const result = { authenticated, in_config: configured };
+      if (options.json) console.log(JSON.stringify(result, null, 2));
+      else {
         console.log('\n📌 Authenticated providers:');
-        if (result.authenticated.length === 0) {
-          console.log('  (none)');
-        } else {
-          result.authenticated.forEach(p => console.log(`  ✓ ${p}`));
-        }
-        
+        authenticated.forEach(id => console.log(`  ✓ ${id}`));
         console.log('\n📝 Providers in config:');
-        if (result.in_config.length === 0) {
-          console.log('  (none)');
-        } else {
-          result.in_config.forEach(p => console.log(`  ⚙ ${p}`));
-        }
-        
-        console.log('\n🔌 Available but not authenticated:');
-        if (result.available_not_authed.length === 0) {
-          console.log('  (none)');
-        } else {
-          result.available_not_authed.slice(0, 10).forEach(p => console.log(`  ○ ${p}`));
-          if (result.available_not_authed.length > 10) {
-            console.log(`  ... and ${result.available_not_authed.length - 10} more`);
-          }
-        }
+        configured.forEach(id => console.log(`  ⚙ ${id}`));
+        if (!authenticated.length && !configured.length) console.log('  (none)');
         console.log();
       }
     } catch (error) {
-      const ocxError = classifyError(error);
-      printError(ocxError, { showStack: options?.verbose });
-      process.exit(1);
+      const e = classifyError(error);
+      if (options.json) console.log(JSON.stringify({ status: 'error', data: null, error: e.message }));
+      else printError(e, { showStack: options?.verbose });
+      process.exitCode = 1;
     }
   });
 
-/**
- * ocx provider add
- * Thêm provider mới (interactive hoặc non-interactive)
- */
 provider.command('add')
   .description('Thêm provider mới')
-  .option('--type <type>', 'Loại provider: oauth, api, openai-compatible, local, bedrock, azure, cloudflare, gitlab')
+  .option('--type <type>', 'api, openai-compatible, local, bedrock, cloudflare')
   .option('--id <id>', 'Provider ID')
-  .option('--api-key <key>', 'API key (cho type=api)')
-  .option('--base-url <url>', 'Base URL (cho openai-compatible)')
-  .option('--models <models>', 'Danh sách models (comma-separated, cho openai-compatible)')
-  .option('--name <name>', 'Tên hiển thị (cho custom provider)')
-  .option('--npm <npm>', 'NPM module (cho custom provider)')
-  .option('--non-interactive', 'Chạy không tương tác (dùng flags)')
-  .option('--dry-run', 'Không ghi file, chỉ hiển thị')
+  .option('--api-key <key>', 'API key; không được lưu plaintext')
+  .option('--base-url <url>', 'Base URL')
+  .option('--models <models>', 'Danh sách models, comma-separated')
+  .option('--name <name>', 'Tên hiển thị')
+  .option('--npm <npm>', 'NPM module')
+  .option('--project', 'Áp dụng cho project hiện tại')
+  .option('--non-interactive', 'Không tương tác')
+  .option('--dry-run', 'Dry run')
   .option('-v, --verbose', 'Verbose mode')
-  .action(async (options) => {
+  .action(async options => {
     try {
-      let providerId = options.id;
+      let providerId = options.id as string | undefined;
       let providerType = options.type as ProviderType | undefined;
-      let apiKey = options.apiKey;
-      let baseUrl = options.baseUrl;
+      let apiKey = options.apiKey as string | undefined;
+      let baseUrl = options.baseUrl as string | undefined;
       let models = parseList(options.models);
-      let name = options.name;
-      let npmModule = options.npm;
-      
-      // Interactive mode nếu không có đủ flags
-      if (!options.nonInteractive || !providerId || !providerType) {
+      let name = options.name as string | undefined;
+      const supported: ProviderType[] = ['api', 'openai-compatible', 'local', 'bedrock', 'cloudflare'];
+
+      if (options.nonInteractive && (!providerId || !providerType)) {
+        throw createOCXError('--non-interactive yêu cầu --id và --type', 'invalid_input');
+      }
+      if (!providerId || !providerType) {
         const rl = createInterface();
-        
-        if (!providerType) {
-          console.log('Chọn loại provider:');
-          console.log('  1) api - API key chuẩn (Anthropic, OpenAI, Google...)');
-          console.log('  2) openai-compatible - Custom OpenAI-compatible endpoint');
-          console.log('  3) oauth - OAuth flow (GitHub Copilot, GitLab...)');
-          console.log('  4) local - Local model (Ollama, LM Studio...)');
-          console.log('  5) bedrock - AWS Bedrock');
-          console.log('  6) cloudflare - Cloudflare AI Gateway');
-          
-          const typeChoice = await prompt(rl, 'Loại provider (1-6): ');
-          const typeMap: Record<string, ProviderType> = {
-            '1': 'api',
-            '2': 'openai-compatible',
-            '3': 'oauth',
-            '4': 'local',
-            '5': 'bedrock',
-            '6': 'cloudflare'
-          };
-          providerType = typeMap[typeChoice] || 'api';
-        }
-        
-        if (!providerId) {
-          providerId = await prompt(rl, 'Provider ID (ví dụ: my-llm): ');
-        }
-        
-        if (providerType === 'api' || providerType === 'openai-compatible') {
-          if (!apiKey) {
-            apiKey = await prompt(rl, 'API Key: ');
-          }
-        }
-        
+        if (!providerType) providerType = (await prompt(rl, 'Loại provider (api/openai-compatible/local/bedrock/cloudflare): ')) as ProviderType;
+        if (!providerId) providerId = await prompt(rl, 'Provider ID: ');
         if (providerType === 'openai-compatible') {
-          if (!baseUrl) {
-            baseUrl = await prompt(rl, 'Base URL (ví dụ: https://api.my-llm.com/v1): ');
-          }
-          if (!options.models) {
-            const modelsInput = await prompt(rl, 'Models (comma-separated, ví dụ: gpt-4,gpt-3.5-turbo): ');
-            models = parseList(modelsInput);
-          }
-          if (!name) {
-            name = await prompt(rl, 'Tên hiển thị: ');
-          }
+          if (!baseUrl) baseUrl = await prompt(rl, 'Base URL: ');
+          if (!models.length) models = parseList(await prompt(rl, 'Models (comma-separated): '));
+          if (!name) name = await prompt(rl, 'Tên hiển thị: ');
         }
-        
         rl.close();
       }
-      
-      if (!providerId || !providerType) {
-        throw createOCXError(
-          'Thiếu provider ID hoặc type',
-          'invalid_input',
-          'Vui lòng cung cấp cả --type và --id.\n' +
-          '  Ví dụ: ocx provider add --type api --id openai'
-        );
+      if (!providerId || !providerType) throw createOCXError('Thiếu provider ID hoặc type', 'invalid_input');
+      if (!supported.includes(providerType)) throw createOCXError(`Provider type ${providerType} chưa được hỗ trợ bởi OCX`, 'invalid_input');
+
+      if (providerType === 'api' || providerType === 'openai-compatible' || providerType === 'cloudflare') {
+        if (!apiKey) apiKey = getProviderApiKey(providerId);
+        if (!apiKey && !options.nonInteractive) apiKey = await promptSecret('API Key: ');
       }
-      
-      // Build provider config
-      const providerConfig: ProviderConfig = {};
-      
-      if (name) {
-        providerConfig.name = name;
+
+      const config: ProviderConfig = { options: {} };
+      if (name) config.name = name;
+      if (options.npm) config.npm = options.npm;
+
+      if (providerType === 'api') {
+        const envName = `${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
+        config.options!.apiKey = `{env:${envName}}`;
+        if (apiKey && !process.env[envName]) console.error(`Set ${envName} in the environment; OCX will not persist the secret.`);
+      } else if (providerType === 'openai-compatible') {
+        if (!baseUrl) throw createOCXError('--base-url is required for openai-compatible', 'invalid_input');
+        config.options!.baseURL = baseUrl;
+        if (apiKey) config.options!.apiKey = `{env:${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY}`;
+        if (models.length) config.models = Object.fromEntries(models.map(id => [id, { id, name: id }]));
+      } else if (providerType === 'local') {
+        if (baseUrl) config.options!.baseURL = baseUrl;
+      } else if (providerType === 'bedrock') {
+        if (process.env.AWS_REGION) config.options!.region = process.env.AWS_REGION;
+      } else if (providerType === 'cloudflare') {
+        config.options!.apiKey = '{env:CLOUDFLARE_API_TOKEN}';
       }
-      
-      if (npmModule) {
-        providerConfig.npm = npmModule;
-      }
-      
-      providerConfig.options = {};
-      
-      // Setup options dựa trên type
-      switch (providerType) {
-        case 'api':
-          // API key sẽ được lưu vào auth.json qua opencode auth, không ghi vào config
-          if (apiKey) {
-            // Có thể ghi vào config như fallback
-            providerConfig.options!.apiKey = `{env:${providerId.toUpperCase()}_API_KEY}`;
-          }
-          break;
-          
-        case 'openai-compatible':
-          if (baseUrl) {
-            providerConfig.options!.baseURL = baseUrl;
-          }
-          if (apiKey) {
-            providerConfig.options!.apiKey = apiKey;
-          }
-          // Add models
-          if (models.length > 0) {
-            providerConfig.models = {};
-            for (const modelId of models) {
-              providerConfig.models[modelId] = {
-                name: modelId,
-                id: modelId
-              };
-            }
-          }
-          break;
-          
-        case 'local':
-          // Ollama/LM Studio thường không cần API key
-          if (baseUrl) {
-            providerConfig.options!.baseURL = baseUrl;
-          }
-          // num_ctx sẽ được set trong interactive mode hoặc qua flag
-          break;
-          
-        case 'bedrock':
-          providerConfig.options!.region = 'us-east-1';
-          break;
-          
-        case 'cloudflare':
-          if (apiKey) {
-            providerConfig.options!.apiKey = apiKey;
-          }
-          break;
-      }
-      
-      // Ghi vào config
-      addProviderToConfig(providerId, providerConfig, undefined, {
-        dryRun: options.dryRun,
-        verbose: options.verbose
-      });
-      
+
+      const configPath = options.project ? `${process.cwd()}/opencode.json` : undefined;
+      addProviderToConfig(providerId, config, configPath, { dryRun: options.dryRun, verbose: options.verbose });
       printSuccess(`Đã thêm provider "${providerId}" (${providerType})`);
-      
-      // Gợi ý set env var nếu là API provider
-      if (providerType === 'api' && apiKey) {
-        const envVar = `${providerId.toUpperCase()}_API_KEY`;
-        console.log(`  Đặt biến môi trường: export ${envVar}=<your-key>`);
-      }
-      
     } catch (error) {
-      const ocxError = classifyError(error);
-      printError(ocxError, { showStack: options?.verbose });
-      process.exit(1);
+      printError(classifyError(error), { showStack: options?.verbose });
+      process.exitCode = 1;
     }
   });
 
-/**
- * ocx provider remove
- * Xóa provider khỏi config
- */
 provider.command('remove <id>')
   .alias('rm')
   .description('Xóa provider khỏi config')
-  .option('--dry-run', 'Không ghi file, chỉ hiển thị')
+  .option('--project', 'Áp dụng cho project hiện tại')
+  .option('--dry-run', 'Dry run')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (providerId, options) => {
     try {
-      removeProviderFromConfig(providerId, undefined, {
-        dryRun: options.dryRun,
-        verbose: options.verbose
-      });
+      removeProviderFromConfig(providerId, options.project ? `${process.cwd()}/opencode.json` : undefined, { dryRun: options.dryRun, verbose: options.verbose });
       printSuccess(`Đã xóa provider "${providerId}"`);
     } catch (error) {
-      const ocxError = classifyError(error);
-      printError(ocxError, { showStack: options?.verbose });
-      process.exit(1);
+      printError(classifyError(error), { showStack: options?.verbose });
+      process.exitCode = 1;
     }
   });
 
-/**
- * ocx provider verify
- * Health check provider
- */
 provider.command('verify <id>')
   .description('Kiểm tra provider có hoạt động không')
-  .option('--model <model>', 'Model ID để test (default: model nhỏ nhất)')
-  .option('--json', 'Output dạng JSON')
+  .requiredOption('--model <model>', 'Model ID để test')
+  .option('--json', 'Output JSON')
   .option('-v, --verbose', 'Verbose mode')
   .action(async (providerId, options) => {
     try {
-      const modelId = options.model || 'gpt-4o-mini'; // Default model nhỏ
-      
-      console.log(`Verifying ${providerId}/${modelId}...`);
-      
-      const result = await verifyProvider(providerId, modelId, { verbose: options.verbose });
-      
-      if (options.json) {
-        console.log(JSON.stringify({
-          provider: providerId,
-          model: modelId,
-          valid: result.valid,
-          error: result.error
-        }, null, 2));
-      } else {
-        if (result.valid) {
-          printSuccess(`${providerId}/${modelId} is working!`);
-        } else {
-          console.error(`${colors.brightRed}✗ ${providerId}/${modelId} failed:${colors.reset}`);
-          console.error(`  ${result.error}`);
-          
-          // Gợi ý khắc phục dựa trên loại lỗi
-          const ocxError = classifyError(new Error(result.error || 'Unknown error'));
-          if (ocxError.suggestion) {
-            console.error(`\n${colors.cyan}💡 Gợi ý:${colors.reset}`);
-            console.error(ocxError.suggestion);
-          }
-          
-          process.exit(1);
-        }
-      }
+      const result = await verifyProvider(providerId, options.model, { verbose: options.verbose, timeout: 10000 });
+      if (options.json) console.log(JSON.stringify({ provider: providerId, model: options.model, valid: result.valid, error: result.error }, null, 2));
+      else if (result.valid) printSuccess(`${providerId}/${options.model} is working!`);
+      else { console.error(`✗ ${providerId}/${options.model} failed: ${result.error || 'Unknown error'}`); process.exitCode = 1; }
     } catch (error) {
-      const ocxError = classifyError(error);
-      printError(ocxError, { showStack: options?.verbose });
-      process.exit(1);
+      const e = classifyError(error);
+      if (options.json) console.log(JSON.stringify({ status: 'error', data: null, error: e.message }));
+      else printError(e, { showStack: options?.verbose });
+      process.exitCode = 1;
     }
   });
 
