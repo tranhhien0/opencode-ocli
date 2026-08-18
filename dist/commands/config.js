@@ -57,9 +57,14 @@ configCmd.command('init')
     .option('-v, --verbose', 'Verbose mode')
     .action((options) => {
     try {
+        const dryRun = options.dryRun || false;
+        if (dryRun) {
+            console.log('[DRY-RUN] Would initialize opencode.json');
+            return;
+        }
         const configPath = options.project ? `${process.cwd()}/opencode.json` : undefined;
         initConfig(configPath, {
-            dryRun: options.dryRun,
+            dryRun: false,
             verbose: options.verbose
         });
         console.log(`✓ Khởi tạo config thành công`);
