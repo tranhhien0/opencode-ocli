@@ -1,32 +1,44 @@
 /**
  * OCX - OpenCode eXtension CLI
- * Module đọc/ghi/merge config theo đúng thứ tự ưu tiên và schema của OpenCode
+ * Module đọc/ghi/merge config với support JSONC và validation schema
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { parse as parseJSONC, printParseErrorCode } from 'jsonc-parser';
 import { OpenCodeConfig, ProviderConfig, MCPServerConfig, ModelConfig, FormatterConfig, LSPConfig } from './types.js';
 import { getConfigPath, isDryRun, isVerbose } from './env.js';
+import { ConfigError } from './errors.js';
+import { log } from './logger.js';
 
 const CONFIG_SCHEMA = 'https://opencode.ai/config.json';
 
 /**
- * Đọc config file từ path chỉ định
+ * Đọc config file từ path chỉ định với support JSONC
  */
 export function readConfig(configPath?: string): OpenCodeConfig {
   const pathToUse = configPath || getConfigPath(false);
   
   if (!fs.existsSync(pathToUse)) {
+    log.debug('Config file not found, returning default', { path: pathToUse });
     return { $schema: CONFIG_SCHEMA };
   }
   
   try {
     const content = fs.readFileSync(pathToUse, 'utf-8');
-    const config = JSON.parse(content) as OpenCodeConfig;
-    return config;
+    
+    // Try parsing as JSONC first (supports comments)
+    const config = parseJSONC(content);
+    if (config === undefined) {
+      throw new Error('Failed to parse JSONC');
+    }
+    
+    log.debug('Config loaded successfully', { path: pathToUse });
+    return config as OpenCodeConfig;
   } catch (error) {
     const err = error as Error;
-    throw new Error(`Không thể đọc config từ ${pathToUse}: ${err.message}`);
+    log.error('Failed to read config', { path: pathToUse, error: err.message });
+    throw new ConfigError(`Không thể đọc config từ ${pathToUse}: ${err.message}`);
   }
 }
 

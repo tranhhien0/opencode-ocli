@@ -13,7 +13,13 @@ import { fileURLToPath } from 'node:url';
 // Import commands
 import provider from './commands/provider.js';
 import model from './commands/model.js';
-import { plugin, skill, mcp, session, configCmd, auth } from './commands/other.js';
+import { plugin } from './commands/plugin.js';
+import { skill } from './commands/skill.js';
+import { mcp } from './commands/mcp.js';
+import { session } from './commands/session.js';
+import { configCmd } from './commands/config.js';
+import { auth } from './commands/auth.js';
+import { doctor } from './commands/doctor.js';
 
 // Get version from package.json
 const __dirname = dirname(fileURLToPath(import.meta.url));
