@@ -1,8 +1,3 @@
-/**
- * OCX - OpenCode eXtension CLI
- * Doctor command - kiểm tra toàn bộ hệ thống
- */
-
 import { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -10,238 +5,93 @@ import { spawn } from 'node:child_process';
 import { readConfig, validateConfig } from '../lib/config.js';
 import { getConfigPath } from '../lib/env.js';
 
-interface CheckResult {
-  name: string;
-  status: 'ok' | 'warning' | 'error';
-  message: string;
-  details?: string;
-}
-
+interface CheckResult { name: string; status: 'ok' | 'warning' | 'error'; message: string; details?: string; }
 const doctor = new Command('doctor');
 
 doctor.description('Kiểm tra toàn bộ hệ thống OCX')
   .option('--json', 'Output JSON')
-  .action(async (options) => {
+  .action(async options => {
     const results: CheckResult[] = [];
+    const nodeMajor = Number.parseInt(process.version.slice(1).split('.')[0], 10);
+    results.push(nodeMajor >= 18
+      ? { name: 'Node.js Version', status: 'ok', message: `Node.js ${process.version}` }
+      : { name: 'Node.js Version', status: 'error', message: `Node.js ${process.version} (yêu cầu >= 18)` });
 
-    // 1. Check Node.js version
-    const nodeVersion = process.version;
-    const nodeMajor = parseInt(nodeVersion.slice(1).split('.')[0], 10);
-    if (nodeMajor >= 18) {
-      results.push({
-        name: 'Node.js Version',
-        status: 'ok',
-        message: `Node.js ${nodeVersion}`,
-      });
-    } else {
-      results.push({
-        name: 'Node.js Version',
-        status: 'error',
-        message: `Node.js ${nodeVersion} (yêu cầu >= 18.0)`,
-        details: 'Vui lòng nâng cấp Node.js lên phiên bản 18 hoặc cao hơn',
-      });
-    }
-
-    // 2. Check opencode CLI installation
     try {
-      const opencodePath = process.env.OPENCODE_PATH || 'opencode';
-      await checkCommandExists(opencodePath);
-      
-      // Get opencode version
-      const version = await getCommandVersion(opencodePath);
-      results.push({
-        name: 'OpenCode CLI',
-        status: 'ok',
-        message: `Installed (${version || 'unknown version'})`,
-      });
+      const command = process.env.OPENCODE_PATH || 'opencode';
+      const version = await getCommandVersion(command, 5000);
+      results.push({ name: 'OpenCode CLI', status: 'ok', message: `Installed (${version || 'unknown version'})` });
     } catch (error) {
-      results.push({
-        name: 'OpenCode CLI',
-        status: 'error',
-        message: 'Not found',
-        details: 'Cài đặt OpenCode: npm install -g opencode\nhoặc\ncurl -sSL https://opencode.ai/install | bash',
-      });
+      results.push({ name: 'OpenCode CLI', status: 'error', message: 'Not found', details: (error as Error).message });
     }
 
-    // 3. Check config file
     const configPath = getConfigPath(false);
     if (fs.existsSync(configPath)) {
       try {
-        const config = readConfig();
-        const validation = validateConfig(config);
-        
-        if (validation.valid) {
-          results.push({
-            name: 'Config File',
-            status: 'ok',
-            message: `Valid config at ${configPath}`,
-          });
-        } else {
-          results.push({
-            name: 'Config File',
-            status: 'warning',
-            message: `Config has issues at ${configPath}`,
-            details: validation.errors.join('\n'),
-          });
-        }
+        const validation = validateConfig(readConfig(configPath));
+        results.push(validation.valid
+          ? { name: 'Config File', status: 'ok', message: `Valid config at ${configPath}` }
+          : { name: 'Config File', status: 'error', message: `Invalid config at ${configPath}`, details: validation.errors.join('\n') });
       } catch (error) {
-        results.push({
-          name: 'Config File',
-          status: 'error',
-          message: `Cannot read config: ${(error as Error).message}`,
-        });
+        results.push({ name: 'Config File', status: 'error', message: 'Cannot read config', details: (error as Error).message });
       }
     } else {
-      results.push({
-        name: 'Config File',
-        status: 'warning',
-        message: 'No global config found',
-        details: `Config path: ${configPath}\nChạy 'ocx config init' để tạo config mới`,
-      });
+      results.push({ name: 'Config File', status: 'warning', message: 'No global config found', details: `Expected path: ${configPath}` });
     }
 
-    // 4. Check project config (if in project)
     const projectConfigPath = path.join(process.cwd(), 'opencode.json');
     if (fs.existsSync(projectConfigPath)) {
       try {
-        const projectConfig = readConfig(projectConfigPath);
-        const validation = validateConfig(projectConfig);
-        
-        if (validation.valid) {
-          results.push({
-            name: 'Project Config',
-            status: 'ok',
-            message: `Valid config at ${projectConfigPath}`,
-          });
-        } else {
-          results.push({
-            name: 'Project Config',
-            status: 'warning',
-            message: `Project config has issues`,
-            details: validation.errors.join('\n'),
-          });
-        }
+        const validation = validateConfig(readConfig(projectConfigPath));
+        results.push(validation.valid
+          ? { name: 'Project Config', status: 'ok', message: `Valid config at ${projectConfigPath}` }
+          : { name: 'Project Config', status: 'error', message: 'Project config has issues', details: validation.errors.join('\n') });
       } catch (error) {
-        results.push({
-          name: 'Project Config',
-          status: 'error',
-          message: `Cannot read project config: ${(error as Error).message}`,
-        });
+        results.push({ name: 'Project Config', status: 'error', message: 'Cannot read project config', details: (error as Error).message });
       }
     }
 
-    // 5. Check environment variables
-    const envVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY'];
-    const setEnvVars = envVars.filter(v => process.env[v]);
-    
-    if (setEnvVars.length > 0) {
-      results.push({
-        name: 'Environment Variables',
-        status: 'ok',
-        message: `${setEnvVars.length} API keys configured`,
-        details: setEnvVars.join(', '),
-      });
-    } else {
-      results.push({
-        name: 'Environment Variables',
-        status: 'warning',
-        message: 'No API keys found in environment',
-        details: 'Set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.',
-      });
-    }
+    const keyNames = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY', 'CLOUDFLARE_API_TOKEN'];
+    const setKeys = keyNames.filter(key => Boolean(process.env[key]));
+    results.push(setKeys.length
+      ? { name: 'Environment Variables', status: 'ok', message: `${setKeys.length} supported credential env vars configured`, details: setKeys.join(', ') }
+      : { name: 'Environment Variables', status: 'warning', message: 'No supported credential env vars found' });
 
-    // 6. Check writable directories
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    const opencodeDir = path.join(homeDir, '.opencode');
-    
+    const home = process.env.HOME || process.env.USERPROFILE || process.cwd();
+    const configDir = path.dirname(configPath);
     try {
-      if (!fs.existsSync(opencodeDir)) {
-        fs.mkdirSync(opencodeDir, { recursive: true });
-      }
-      
-      const testFile = path.join(opencodeDir, '.write-test');
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
-      
-      results.push({
-        name: 'Directory Permissions',
-        status: 'ok',
-        message: `${opencodeDir} is writable`,
-      });
+      fs.accessSync(home, fs.constants.R_OK);
+      results.push({ name: 'Home Directory', status: 'ok', message: `${home} is readable` });
+      fs.accessSync(configDir, fs.constants.W_OK | fs.constants.R_OK);
+      results.push({ name: 'Config Directory', status: 'ok', message: `${configDir} is writable` });
     } catch (error) {
-      results.push({
-        name: 'Directory Permissions',
-        status: 'error',
-        message: `Cannot write to ${opencodeDir}`,
-        details: (error as Error).message,
-      });
+      results.push({ name: 'Filesystem Permissions', status: 'warning', message: `Cannot verify ${configDir}`, details: (error as Error).message });
     }
 
-    // Output results
+    const summary = {
+      ok: results.filter(r => r.status === 'ok').length,
+      warning: results.filter(r => r.status === 'warning').length,
+      error: results.filter(r => r.status === 'error').length,
+    };
+
     if (options.json) {
-      console.log(JSON.stringify({
-        timestamp: new Date().toISOString(),
-        checks: results,
-        summary: {
-          ok: results.filter(r => r.status === 'ok').length,
-          warning: results.filter(r => r.status === 'warning').length,
-          error: results.filter(r => r.status === 'error').length,
-        }
-      }, null, 2));
+      console.log(JSON.stringify({ timestamp: new Date().toISOString(), checks: results, summary }, null, 2));
     } else {
       console.log('\n🔍 OCX Doctor - System Check\n');
-      console.log('═'.repeat(50));
-      
-      for (const result of results) {
-        const icon = result.status === 'ok' ? '✓' : result.status === 'warning' ? '⚠' : '✗';
-        const color = result.status === 'ok' ? '\x1b[32m' : result.status === 'warning' ? '\x1b[33m' : '\x1b[31m';
-        const reset = '\x1b[0m';
-        
-        console.log(`${color}${icon} ${result.name}${reset}`);
-        console.log(`  ${result.message}`);
-        if (result.details) {
-          console.log(`  ${result.details}`);
-        }
-        console.log();
-      }
-      
-      console.log('═'.repeat(50));
-      
-      const errors = results.filter(r => r.status === 'error').length;
-      const warnings = results.filter(r => r.status === 'warning').length;
-      
-      if (errors === 0 && warnings === 0) {
-        console.log('\n🎉 All checks passed!\n');
-      } else if (errors === 0) {
-        console.log(`\n⚠️  ${warnings} warning(s) found\n`);
-      } else {
-        console.log(`\n❌ ${errors} error(s), ${warnings} warning(s) found\n`);
-        process.exit(1);
-      }
+      for (const result of results) console.log(`${result.status === 'ok' ? '✓' : result.status === 'warning' ? '⚠' : '✗'} ${result.name}: ${result.message}${result.details ? `\n  ${result.details}` : ''}`);
+      if (summary.error > 0) process.exitCode = 1;
     }
+    if (summary.error > 0) process.exitCode = 1;
   });
 
-function checkCommandExists(command: string): Promise<void> {
+function getCommandVersion(command: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, ['--version'], { stdio: 'ignore' });
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Command ${command} not found`));
-    });
-  });
-}
-
-async function getCommandVersion(command: string): Promise<string> {
-  return new Promise((resolve) => {
-    const proc = spawn(command, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const proc = spawn(command, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
     let output = '';
-    proc.stdout?.on('data', (data) => {
-      output += data.toString();
-    });
-    proc.on('close', () => {
-      resolve(output.trim());
-    });
+    const timer = setTimeout(() => { proc.kill('SIGTERM'); reject(new Error(`Command timed out after ${timeoutMs}ms`)); }, timeoutMs);
+    proc.stdout?.on('data', data => { output += data.toString(); });
+    proc.once('error', error => { clearTimeout(timer); reject(error); });
+    proc.once('close', code => { clearTimeout(timer); code === 0 ? resolve(output.trim()) : reject(new Error(`Command exited with code ${code ?? 1}`)); });
   });
 }
 
