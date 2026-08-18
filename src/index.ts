@@ -91,7 +91,8 @@ Documentation: https://opencode.ai/docs/
 // Parse and run
 program.parse(process.argv);
 
-// Show help if no command provided
+// Show help if no command provided - exit with 0 instead of 1
 if (!process.argv.slice(2).length) {
   program.outputHelp();
+  process.exit(0);
 }
